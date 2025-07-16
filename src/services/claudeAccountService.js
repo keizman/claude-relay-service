@@ -377,7 +377,7 @@ class ClaudeAccountService {
       
       if (proxy.type === 'socks5') {
         const auth = proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : '';
-        const socksUrl = `socks5://${auth}${proxy.host}:${proxy.port}`;
+        const socksUrl = `socks5h://${auth}${proxy.host}:${proxy.port}`;
         return new SocksProxyAgent(socksUrl);
       } else if (proxy.type === 'http' || proxy.type === 'https') {
         const auth = proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : '';

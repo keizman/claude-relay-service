@@ -98,7 +98,8 @@ function createProxyAgent(proxyConfig) {
     try {
         if (proxyConfig.type === 'socks5') {
             const auth = proxyConfig.username && proxyConfig.password ? `${proxyConfig.username}:${proxyConfig.password}@` : '';
-            const socksUrl = `socks5://${auth}${proxyConfig.host}:${proxyConfig.port}`;
+            const socksUrl = `socks5h://${auth}${proxyConfig.host}:${proxyConfig.port}`;
+            console.log('🌐 Creating SOCKS5 proxy agent:', socksUrl.replace(/\/\/.*@/, '//***@')); // 隐藏认证信息的日志
             return new SocksProxyAgent(socksUrl);
         } else if (proxyConfig.type === 'http' || proxyConfig.type === 'https') {
             const auth = proxyConfig.username && proxyConfig.password ? `${proxyConfig.username}:${proxyConfig.password}@` : '';
@@ -142,7 +143,8 @@ async function exchangeCodeForTokens(authorizationCode, codeVerifier, state, pro
             codeLength: cleanedCode.length,
             codePrefix: cleanedCode.substring(0, 10) + '...',
             hasProxy: !!proxyConfig,
-            proxyType: proxyConfig?.type || 'none'
+            proxyType: proxyConfig?.type || 'none',
+            proxyHost: proxyConfig?.host || 'none'
         });
 
         const response = await axios.post(OAUTH_CONFIG.TOKEN_URL, params, {
@@ -213,9 +215,31 @@ async function exchangeCodeForTokens(authorizationCode, codeVerifier, state, pro
             logger.error('❌ OAuth token exchange failed with network error', {
                 message: error.message,
                 code: error.code,
-                hasProxy: !!proxyConfig
+                hasProxy: !!proxyConfig,
+                proxyConfig: proxyConfig ? {
+                    type: proxyConfig.type,
+                    host: proxyConfig.host,
+                    port: proxyConfig.port,
+                    hasAuth: !!(proxyConfig.username && proxyConfig.password)
+                } : null,
+                errno: error.errno,
+                syscall: error.syscall,
+                address: error.address,
+                port: error.port
             });
-            throw new Error('Token exchange failed: No response from server (network error or timeout)');
+            
+            let errorDetails = 'No response from server (network error or timeout)';
+            if (error.message.includes('ECONNREFUSED')) {
+                errorDetails = 'Connection refused - proxy server may be unreachable';
+            } else if (error.message.includes('ENOTFOUND')) {
+                errorDetails = 'Host not found - check proxy host address';
+            } else if (error.message.includes('ETIMEDOUT')) {
+                errorDetails = 'Connection timeout - proxy server may be slow or unreachable';
+            } else if (error.message.includes('Socks5')) {
+                errorDetails = `SOCKS5 proxy error: ${error.message}`;
+            }
+            
+            throw new Error(`Token exchange failed: ${errorDetails}`);
         } else {
             // 其他错误
             logger.error('❌ OAuth token exchange failed with unknown error', {
