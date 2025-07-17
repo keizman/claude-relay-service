@@ -383,6 +383,21 @@ router.post('/claude-accounts/:accountId/refresh', authenticateAdmin, async (req
   }
 });
 
+// 切换Claude账户状态（启用/禁用）
+router.post('/claude-accounts/:accountId/toggle-status', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params;
+    
+    const result = await claudeAccountService.toggleAccountStatus(accountId);
+    
+    logger.success(`🔄 Admin toggled status for Claude account: ${accountId}`);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('❌ Failed to toggle Claude account status:', error);
+    res.status(500).json({ error: 'Failed to toggle account status', message: error.message });
+  }
+});
+
 // 📊 系统统计
 
 // 获取系统概览
