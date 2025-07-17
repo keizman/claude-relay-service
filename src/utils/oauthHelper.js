@@ -108,10 +108,21 @@ function createProxyAgent(proxyConfig) {
     try {
         if (proxyConfig.type === 'socks5') {
             const auth = proxyConfig.username && proxyConfig.password ? `${proxyConfig.username}:${proxyConfig.password}@` : '';
+            const socksUrl = `socks5://${auth}${proxyConfig.host}:${proxyConfig.port}`;
+            const maskedUrl = `socks5://${proxyConfig.username ? `${proxyConfig.username}:***@` : ''}${proxyConfig.host}:${proxyConfig.port}`;
+            
+            logger.info('🌐 Creating SOCKS5 proxy agent:', {
+                url: maskedUrl,
+                fullUrlLength: socksUrl.length
+            });
+            
+            return new SocksProxyAgent(socksUrl);
+        } else if (proxyConfig.type === 'socks5h') {
+            const auth = proxyConfig.username && proxyConfig.password ? `${proxyConfig.username}:${proxyConfig.password}@` : '';
             const socksUrl = `socks5h://${auth}${proxyConfig.host}:${proxyConfig.port}`;
             const maskedUrl = `socks5h://${proxyConfig.username ? `${proxyConfig.username}:***@` : ''}${proxyConfig.host}:${proxyConfig.port}`;
             
-            logger.info('🌐 Creating SOCKS5 proxy agent:', {
+            logger.info('🌐 Creating SOCKS5H proxy agent (hostname lookup through proxy):', {
                 url: maskedUrl,
                 fullUrlLength: socksUrl.length
             });
