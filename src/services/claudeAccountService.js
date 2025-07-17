@@ -299,6 +299,45 @@ class ClaudeAccountService {
     }
   }
 
+  // 🔄 切换Claude账户状态（启用/禁用）
+  async toggleAccountStatus(accountId) {
+    try {
+      const accountData = await redis.getClaudeAccount(accountId);
+      
+      if (!accountData || Object.keys(accountData).length === 0) {
+        throw new Error('Account not found');
+      }
+
+      // 切换isActive状态
+      const newStatus = accountData.isActive === 'true' ? 'false' : 'true';
+      const actionText = newStatus === 'true' ? '启用' : '禁用';
+      
+      accountData.isActive = newStatus;
+      accountData.updatedAt = new Date().toISOString();
+      
+      // 如果是禁用操作，记录禁用时间
+      if (newStatus === 'false') {
+        accountData.disabledAt = new Date().toISOString();
+      } else {
+        // 如果是启用操作，清除禁用时间
+        delete accountData.disabledAt;
+      }
+      
+      await redis.setClaudeAccount(accountId, accountData);
+      
+      logger.success(`🔄 ${actionText}了 Claude 账户: ${accountData.name} (${accountId})`);
+      
+      return { 
+        success: true, 
+        isActive: newStatus === 'true',
+        message: `账户已${actionText}` 
+      };
+    } catch (error) {
+      logger.error('❌ Failed to toggle Claude account status:', error);
+      throw error;
+    }
+  }
+
   // 🗑️ 删除Claude账户
   async deleteAccount(accountId) {
     try {

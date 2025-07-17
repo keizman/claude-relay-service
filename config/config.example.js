@@ -41,7 +41,7 @@ const config = {
 
   // 🌐 代理配置
   proxy: {
-    timeout: parseInt(process.env.DEFAULT_PROXY_TIMEOUT) || 30000,
+    timeout: parseInt(process.env.DEFAULT_PROXY_TIMEOUT) || 120000, // 增加到120秒(2分钟)，适应Claude API较长的响应时间
     maxRetries: parseInt(process.env.MAX_PROXY_RETRIES) || 3
   },
 

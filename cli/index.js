@@ -172,11 +172,22 @@ async function listClaudeAccounts() {
     ];
 
     accounts.forEach(account => {
+      let statusText;
+      if (!account.isActive) {
+        statusText = '🔴 禁用';
+      } else if (account.status === 'active') {
+        statusText = '🟢 活跃';
+      } else if (account.status === 'error') {
+        statusText = '❌ 错误';
+      } else {
+        statusText = '🟡 待激活';
+      }
+      
       tableData.push([
         account.id.substring(0, 8) + '...',
         account.name,
         account.email || '-',
-        account.isActive ? (account.status === 'active' ? '🟢 活跃' : '🟡 待激活') : '🔴 停用',
+        statusText,
         account.proxy ? '🌐 是' : '-',
         account.lastUsedAt ? new Date(account.lastUsedAt).toLocaleDateString() : '-'
       ]);
