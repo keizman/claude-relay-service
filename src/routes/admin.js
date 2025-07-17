@@ -337,6 +337,36 @@ router.post('/claude-accounts', authenticateAdmin, async (req, res) => {
   }
 });
 
+// 刷新Claude账户token (具体路由要放在通用路由前面)
+router.post('/claude-accounts/:accountId/refresh', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params;
+    
+    const result = await claudeAccountService.refreshAccountToken(accountId);
+    
+    logger.success(`🔄 Admin refreshed token for Claude account: ${accountId}`);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('❌ Failed to refresh Claude account token:', error);
+    res.status(500).json({ error: 'Failed to refresh token', message: error.message });
+  }
+});
+
+// 切换Claude账户状态（启用/禁用）(具体路由要放在通用路由前面)
+router.post('/claude-accounts/:accountId/toggle-status', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params;
+    
+    const result = await claudeAccountService.toggleAccountStatus(accountId);
+    
+    logger.success(`🔄 Admin toggled status for Claude account: ${accountId}`);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('❌ Failed to toggle Claude account status:', error);
+    res.status(500).json({ error: 'Failed to toggle account status', message: error.message });
+  }
+});
+
 // 更新Claude账户
 router.put('/claude-accounts/:accountId', authenticateAdmin, async (req, res) => {
   try {
@@ -365,36 +395,6 @@ router.delete('/claude-accounts/:accountId', authenticateAdmin, async (req, res)
   } catch (error) {
     logger.error('❌ Failed to delete Claude account:', error);
     res.status(500).json({ error: 'Failed to delete Claude account', message: error.message });
-  }
-});
-
-// 刷新Claude账户token
-router.post('/claude-accounts/:accountId/refresh', authenticateAdmin, async (req, res) => {
-  try {
-    const { accountId } = req.params;
-    
-    const result = await claudeAccountService.refreshAccountToken(accountId);
-    
-    logger.success(`🔄 Admin refreshed token for Claude account: ${accountId}`);
-    res.json({ success: true, data: result });
-  } catch (error) {
-    logger.error('❌ Failed to refresh Claude account token:', error);
-    res.status(500).json({ error: 'Failed to refresh token', message: error.message });
-  }
-});
-
-// 切换Claude账户状态（启用/禁用）
-router.post('/claude-accounts/:accountId/toggle-status', authenticateAdmin, async (req, res) => {
-  try {
-    const { accountId } = req.params;
-    
-    const result = await claudeAccountService.toggleAccountStatus(accountId);
-    
-    logger.success(`🔄 Admin toggled status for Claude account: ${accountId}`);
-    res.json({ success: true, data: result });
-  } catch (error) {
-    logger.error('❌ Failed to toggle Claude account status:', error);
-    res.status(500).json({ error: 'Failed to toggle account status', message: error.message });
   }
 });
 

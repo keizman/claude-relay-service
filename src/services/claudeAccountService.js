@@ -181,7 +181,8 @@ class ClaudeAccountService {
         throw new Error('Account not found');
       }
 
-      if (accountData.isActive !== 'true') {
+      // 兼容旧数据：undefined默认为启用状态
+      if (accountData.isActive === 'false') {
         throw new Error('Account is disabled');
       }
 
@@ -234,7 +235,7 @@ class ClaudeAccountService {
         name: account.name,
         description: account.description,
         email: account.email ? this._maskEmail(this._decryptSensitiveData(account.email)) : '',
-        isActive: account.isActive === 'true',
+        isActive: account.isActive === undefined ? true : account.isActive === 'true', // 兼容旧数据，默认为启用
         proxy: account.proxy ? JSON.parse(account.proxy) : null,
         status: account.status,
         errorMessage: account.errorMessage,
@@ -308,8 +309,9 @@ class ClaudeAccountService {
         throw new Error('Account not found');
       }
 
-      // 切换isActive状态
-      const newStatus = accountData.isActive === 'true' ? 'false' : 'true';
+      // 切换isActive状态，兼容旧数据（undefined默认为true）
+      const currentActive = accountData.isActive === undefined ? true : accountData.isActive === 'true';
+      const newStatus = currentActive ? 'false' : 'true';
       const actionText = newStatus === 'true' ? '启用' : '禁用';
       
       accountData.isActive = newStatus;
@@ -362,7 +364,7 @@ class ClaudeAccountService {
       const accounts = await redis.getAllClaudeAccounts();
       
       const activeAccounts = accounts.filter(account => 
-        account.isActive === 'true' && 
+        (account.isActive === undefined || account.isActive === 'true') && // 兼容旧数据，undefined默认为true
         account.status !== 'error'
       );
 
@@ -416,7 +418,7 @@ class ClaudeAccountService {
       // 如果API Key绑定了专属账户，优先使用
       if (apiKeyData.claudeAccountId) {
         const boundAccount = await redis.getClaudeAccount(apiKeyData.claudeAccountId);
-        if (boundAccount && boundAccount.isActive === 'true' && boundAccount.status !== 'error') {
+        if (boundAccount && (boundAccount.isActive === undefined || boundAccount.isActive === 'true') && boundAccount.status !== 'error') {
           logger.info(`🎯 Using bound dedicated account: ${boundAccount.name} (${apiKeyData.claudeAccountId}) for API key ${apiKeyData.name}`);
           return apiKeyData.claudeAccountId;
         } else {
@@ -428,7 +430,7 @@ class ClaudeAccountService {
       const accounts = await redis.getAllClaudeAccounts();
       
       const sharedAccounts = accounts.filter(account => 
-        account.isActive === 'true' && 
+        (account.isActive === undefined || account.isActive === 'true') && // 兼容旧数据，undefined默认为true
         account.status !== 'error' &&
         (account.accountType === 'shared' || !account.accountType) // 兼容旧数据
       );
