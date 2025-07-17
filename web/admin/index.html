@@ -2155,12 +2155,14 @@
                         <div class="border-t pt-6">
                             <label class="block text-sm font-semibold text-gray-700 mb-3">代理设置 (可选)</label>
                             <p class="text-sm text-gray-500 mb-4">如果需要使用代理访问Claude服务，请配置代理信息。OAuth授权也将通过此代理进行。</p>
+                            <p class="text-xs text-amber-600 mb-4">💡 <strong>提示：</strong>如果SOCKS5连接失败，请尝试使用SOCKS5H（通过代理解析域名）</p>
                             <select 
                                 v-model="accountForm.proxyType" 
                                 class="form-input w-full"
                             >
                                 <option value="">不使用代理</option>
                                 <option value="socks5">SOCKS5 代理</option>
+                                <option value="socks5h">SOCKS5H 代理 (推荐)</option>
                                 <option value="http">HTTP 代理</option>
                             </select>
                         </div>
@@ -2466,12 +2468,14 @@
                     <div class="border-t pt-6">
                         <label class="block text-sm font-semibold text-gray-700 mb-3">代理设置 (可选)</label>
                         <p class="text-sm text-gray-500 mb-4">如果需要修改代理设置，请更新代理信息。</p>
+                        <p class="text-xs text-amber-600 mb-4">💡 <strong>提示：</strong>如果SOCKS5连接失败，请尝试使用SOCKS5H（通过代理解析域名）</p>
                         <select 
                             v-model="editAccountForm.proxyType" 
                             class="form-input w-full"
                         >
                             <option value="">不使用代理</option>
                             <option value="socks5">SOCKS5 代理</option>
+                            <option value="socks5h">SOCKS5H 代理 (推荐)</option>
                             <option value="http">HTTP 代理</option>
                         </select>
                     </div>
