@@ -230,16 +230,36 @@ class Application {
       await redis.getClient().ping();
       const latency = Date.now() - start;
       
+      // 获取Redis信息
+      const info = await redis.getClient().info('server');
+      const memory = await redis.getClient().info('memory');
+      
       return {
         status: 'healthy',
         connected: redis.isConnected,
-        latency: `${latency}ms`
+        latency: `${latency}ms`,
+        server_info: {
+          redis_version: info.match(/redis_version:([^\r\n]+)/)?.[1],
+          uptime_in_seconds: info.match(/uptime_in_seconds:([^\r\n]+)/)?.[1],
+          connected_clients: info.match(/connected_clients:([^\r\n]+)/)?.[1],
+        },
+        memory_info: {
+          used_memory_human: memory.match(/used_memory_human:([^\r\n]+)/)?.[1],
+          used_memory_peak_human: memory.match(/used_memory_peak_human:([^\r\n]+)/)?.[1],
+        }
       };
     } catch (error) {
+      logger.error('Redis health check failed:', error);
       return {
         status: 'unhealthy',
         connected: false,
-        error: error.message
+        error: error.message,
+        suggestions: [
+          'Check if Redis server is running',
+          'Verify network connectivity',
+          'Check Redis configuration',
+          'Monitor system resources'
+        ]
       };
     }
   }
