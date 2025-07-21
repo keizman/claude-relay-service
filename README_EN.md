@@ -9,9 +9,16 @@
 
 **🔐 Self-hosted Claude API relay service with multi-account management** 
 
-[English](#english) • [中文文档](#中文文档) • [📸 Interface Preview](docs/preview.md)
+[English](#english) • [中文文档](#中文文档) • [📸 Interface Preview](docs/preview.md) • [📢 Telegram Channel](https://t.me/claude_relay_service)
 
 </div>
+
+---
+
+## ⭐ If You Find It Useful, Please Give It a Star!
+
+> Open source is not easy, your Star is my motivation to continue updating 🚀  
+> Join [Telegram Channel](https://t.me/claude_relay_service) for the latest updates
 
 ---
 

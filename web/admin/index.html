@@ -84,7 +84,7 @@
                         </div>
                     </div>
                     <!-- 用户菜单 -->
-                    <div class="relative">
+                    <div class="relative user-menu-container">
                         <button 
                             @click="userMenuOpen = !userMenuOpen"
                             class="btn btn-primary px-4 py-3 flex items-center gap-2 relative"
@@ -97,7 +97,7 @@
                         <!-- 悬浮菜单 -->
                         <div 
                             v-if="userMenuOpen" 
-                            class="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-200 py-2"
+                            class="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-200 py-2 user-menu-dropdown"
                             style="z-index: 999999;"
                             @click.stop
                         >
@@ -160,7 +160,12 @@
                                 <div>
                                     <p class="text-sm font-semibold text-gray-600 mb-1">Claude账户</p>
                                     <p class="text-3xl font-bold text-gray-900">{{ dashboardData.totalAccounts }}</p>
-                                    <p class="text-xs text-gray-500 mt-1">活跃: {{ dashboardData.activeAccounts || 0 }}</p>
+                                    <p class="text-xs text-gray-500 mt-1">
+                                        活跃: {{ dashboardData.activeAccounts || 0 }}
+                                        <span v-if="dashboardData.rateLimitedAccounts > 0" class="text-yellow-600">
+                                            | 限流: {{ dashboardData.rateLimitedAccounts }}
+                                        </span>
+                                    </p>
                                 </div>
                                 <div class="stat-icon bg-gradient-to-br from-green-500 to-green-600">
                                     <i class="fas fa-user-circle"></i>
@@ -292,21 +297,53 @@
                                     </button>
                                 </div>
                                 
+                                <!-- 粒度切换按钮 -->
+                                <div class="flex gap-1 bg-gray-100 rounded-lg p-1">
+                                    <button 
+                                        @click="setTrendGranularity('day')"
+                                        :class="[
+                                            'px-3 py-1 rounded-md text-sm font-medium transition-colors',
+                                            trendGranularity === 'day'
+                                                ? 'bg-white text-blue-600 shadow-sm' 
+                                                : 'text-gray-600 hover:text-gray-900'
+                                        ]"
+                                    >
+                                        <i class="fas fa-calendar-day mr-1"></i>按天
+                                    </button>
+                                    <button 
+                                        @click="setTrendGranularity('hour')"
+                                        :class="[
+                                            'px-3 py-1 rounded-md text-sm font-medium transition-colors',
+                                            trendGranularity === 'hour'
+                                                ? 'bg-white text-blue-600 shadow-sm' 
+                                                : 'text-gray-600 hover:text-gray-900'
+                                        ]"
+                                    >
+                                        <i class="fas fa-clock mr-1"></i>按小时
+                                    </button>
+                                </div>
+                                
                                 <!-- Element Plus 日期范围选择器 -->
-                                <el-date-picker
-                                    v-model="dateFilter.customRange"
-                                    type="datetimerange"
-                                    range-separator="至"
-                                    start-placeholder="开始日期"
-                                    end-placeholder="结束日期"
-                                    format="YYYY-MM-DD HH:mm:ss"
-                                    value-format="YYYY-MM-DD HH:mm:ss"
-                                    @change="onCustomDateRangeChange"
-                                    :disabled-date="disabledDate"
-                                    size="default"
-                                    style="width: 350px;"
-                                    class="custom-date-picker"
-                                ></el-date-picker>
+                                <div class="flex items-center gap-2">
+                                    <el-date-picker
+                                        :default-time="defaultTime"
+                                        v-model="dateFilter.customRange"
+                                        type="datetimerange"
+                                        range-separator="至"
+                                        start-placeholder="开始日期"
+                                        end-placeholder="结束日期"
+                                        format="YYYY-MM-DD HH:mm:ss"
+                                        value-format="YYYY-MM-DD HH:mm:ss"
+                                        @change="onCustomDateRangeChange"
+                                        :disabled-date="disabledDate"
+                                        size="default"
+                                        style="width: 350px;"
+                                        class="custom-date-picker"
+                                    ></el-date-picker>
+                                    <span v-if="trendGranularity === 'hour'" class="text-xs text-orange-600">
+                                        <i class="fas fa-info-circle"></i> 最多24小时
+                                    </span>
+                                </div>
                                 
                                 <button @click="refreshChartsData()" class="btn btn-primary px-4 py-2 flex items-center gap-2">
                                     <i class="fas fa-sync-alt"></i>刷新
@@ -365,6 +402,24 @@
                         <div class="card p-6">
                             <div style="height: 300px;">
                                 <canvas id="usageTrendChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- API Keys Token消耗趋势图 -->
+                    <div class="mb-8">
+                        <div class="card p-6">
+                            <h3 class="text-lg font-semibold text-gray-900 mb-4">API Keys Token 消耗趋势</h3>
+                            <div class="mb-4 text-sm text-gray-600">
+                                <span v-if="apiKeysTrendData.totalApiKeys > 10">
+                                    共 {{ apiKeysTrendData.totalApiKeys }} 个 API Key，显示使用量前 10 个
+                                </span>
+                                <span v-else>
+                                    共 {{ apiKeysTrendData.totalApiKeys }} 个 API Key
+                                </span>
+                            </div>
+                            <div style="height: 350px;">
+                                <canvas id="apiKeysUsageTrendChart"></canvas>
                             </div>
                         </div>
                     </div>
@@ -478,6 +533,16 @@
                                                             {{ key.currentConcurrency || 0 }}
                                                             <span v-if="key.concurrencyLimit > 0" class="text-xs text-gray-500">/ {{ key.concurrencyLimit }}</span>
                                                         </span>
+                                                    </div>
+                                                    <!-- 时间窗口限流 -->
+                                                    <div v-if="key.rateLimitWindow > 0" class="flex justify-between text-sm">
+                                                        <span class="text-gray-600">时间窗口:</span>
+                                                        <span class="font-medium text-indigo-600">{{ key.rateLimitWindow }} 分钟</span>
+                                                    </div>
+                                                    <!-- 请求次数限制 -->
+                                                    <div v-if="key.rateLimitRequests > 0" class="flex justify-between text-sm">
+                                                        <span class="text-gray-600">请求限制:</span>
+                                                        <span class="font-medium text-indigo-600">{{ key.rateLimitRequests }} 次/窗口</span>
                                                     </div>
                                                     <!-- 输入/输出Token -->
                                                     <div class="flex justify-between text-xs text-gray-500">
@@ -781,6 +846,11 @@
                                                     <div :class="['w-2 h-2 rounded-full mr-2', 
                                                                account.isActive ? 'bg-green-500' : 'bg-gray-500']"></div>
                                                     {{ account.isActive ? '正常' : '禁用' }}
+                                                </span>
+                                                <span v-if="account.rateLimitStatus && account.rateLimitStatus.isRateLimited" 
+                                                      class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
+                                                    <i class="fas fa-exclamation-triangle mr-1"></i>
+                                                    限流中 ({{ account.rateLimitStatus.minutesRemaining }}分钟)
                                                 </span>
                                                 <span v-if="account.accountType === 'dedicated'" 
                                                       class="text-xs text-gray-500">
@@ -1713,7 +1783,7 @@
 
         <!-- 创建 API Key 模态框 -->
         <div v-if="showCreateApiKeyModal" class="fixed inset-0 modal z-50 flex items-center justify-center p-4">
-            <div class="modal-content w-full max-w-md p-8 mx-auto">
+            <div class="modal-content w-full max-w-md p-8 mx-auto max-h-[90vh] flex flex-col">
                 <div class="flex items-center justify-between mb-6">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
@@ -1729,7 +1799,7 @@
                     </button>
                 </div>
                 
-                <form @submit.prevent="createApiKey" class="space-y-6">
+                <form @submit.prevent="createApiKey" class="space-y-6 modal-scroll-content custom-scrollbar flex-1">
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-3">名称</label>
                         <input 
@@ -1742,14 +1812,38 @@
                     </div>
                     
                     <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-3">Token 限制 (可选)</label>
+                        <label class="block text-sm font-semibold text-gray-700 mb-3">时间窗口 (可选)</label>
+                        <input 
+                            v-model="apiKeyForm.rateLimitWindow" 
+                            type="number" 
+                            min="1"
+                            placeholder="留空表示无限制" 
+                            class="form-input w-full"
+                        >
+                        <p class="text-xs text-gray-500 mt-2">设置时间窗口（分钟），在此时间内限制请求次数或Token使用量</p>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-3">请求次数限制 (可选)</label>
+                        <input 
+                            v-model="apiKeyForm.rateLimitRequests" 
+                            type="number" 
+                            min="1"
+                            placeholder="留空表示无限制" 
+                            class="form-input w-full"
+                        >
+                        <p class="text-xs text-gray-500 mt-2">在时间窗口内允许的最大请求次数</p>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-3">时间窗口内 Token 限制 (可选)</label>
                         <input 
                             v-model="apiKeyForm.tokenLimit" 
                             type="number" 
                             placeholder="留空表示无限制" 
                             class="form-input w-full"
                         >
-                        <p class="text-xs text-gray-500 mt-2">设置此 API Key 的最大 token 使用量</p>
+                        <p class="text-xs text-gray-500 mt-2">设置在时间窗口内的最大 Token 使用量（需同时设置时间窗口）</p>
                     </div>
                     
                     <div>
@@ -1792,6 +1886,62 @@
                         <p class="text-xs text-gray-500 mt-2">选择专属账号后，此API Key将只使用该账号，不选择则使用共享账号池</p>
                     </div>
                     
+                    <div>
+                        <div class="flex items-center mb-3">
+                            <input 
+                                type="checkbox" 
+                                v-model="apiKeyForm.enableModelRestriction" 
+                                id="enableModelRestriction"
+                                class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                            >
+                            <label for="enableModelRestriction" class="ml-2 text-sm font-semibold text-gray-700 cursor-pointer">
+                                启用模型限制
+                            </label>
+                        </div>
+                        
+                        <div v-if="apiKeyForm.enableModelRestriction" class="space-y-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600 mb-2">限制的模型列表</label>
+                                <div class="flex flex-wrap gap-2 mb-3 min-h-[32px] p-2 bg-gray-50 rounded-lg border border-gray-200">
+                                    <span 
+                                        v-for="(model, index) in apiKeyForm.restrictedModels" 
+                                        :key="index"
+                                        class="inline-flex items-center px-3 py-1 rounded-full text-sm bg-red-100 text-red-800"
+                                    >
+                                        {{ model }}
+                                        <button 
+                                            type="button"
+                                            @click="removeRestrictedModel(apiKeyForm, index)"
+                                            class="ml-2 text-red-600 hover:text-red-800"
+                                        >
+                                            <i class="fas fa-times text-xs"></i>
+                                        </button>
+                                    </span>
+                                    <span v-if="apiKeyForm.restrictedModels.length === 0" class="text-gray-400 text-sm">
+                                        暂无限制的模型
+                                    </span>
+                                </div>
+                                <div class="flex gap-2">
+                                    <input 
+                                        v-model="apiKeyForm.modelInput"
+                                        @keydown.enter.prevent="addRestrictedModel(apiKeyForm)"
+                                        type="text"
+                                        placeholder="输入模型名称，按回车添加"
+                                        class="form-input flex-1"
+                                    >
+                                    <button 
+                                        type="button"
+                                        @click="addRestrictedModel(apiKeyForm)"
+                                        class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                                    >
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-2">设置此API Key无法访问的模型，例如：claude-opus-4-20250514</p>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="flex gap-3 pt-4">
                         <button 
                             type="button" 
@@ -1816,7 +1966,7 @@
 
         <!-- 编辑 API Key 模态框 -->
         <div v-if="showEditApiKeyModal" class="fixed inset-0 modal z-50 flex items-center justify-center p-4">
-            <div class="modal-content w-full max-w-md p-8 mx-auto">
+            <div class="modal-content w-full max-w-md p-8 mx-auto max-h-[90vh] flex flex-col">
                 <div class="flex items-center justify-between mb-6">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
@@ -1832,7 +1982,7 @@
                     </button>
                 </div>
                 
-                <form @submit.prevent="updateApiKey" class="space-y-6">
+                <form @submit.prevent="updateApiKey" class="space-y-6 modal-scroll-content custom-scrollbar flex-1">
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-3">名称</label>
                         <input 
@@ -1845,7 +1995,31 @@
                     </div>
                     
                     <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-3">Token 限制</label>
+                        <label class="block text-sm font-semibold text-gray-700 mb-3">时间窗口</label>
+                        <input 
+                            v-model="editApiKeyForm.rateLimitWindow" 
+                            type="number" 
+                            min="1"
+                            placeholder="留空表示无限制" 
+                            class="form-input w-full"
+                        >
+                        <p class="text-xs text-gray-500 mt-2">设置时间窗口（分钟），在此时间内限制请求次数或Token使用量</p>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-3">请求次数限制</label>
+                        <input 
+                            v-model="editApiKeyForm.rateLimitRequests" 
+                            type="number" 
+                            min="1"
+                            placeholder="留空表示无限制" 
+                            class="form-input w-full"
+                        >
+                        <p class="text-xs text-gray-500 mt-2">在时间窗口内允许的最大请求次数</p>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-3">时间窗口内 Token 限制</label>
                         <input 
                             v-model="editApiKeyForm.tokenLimit" 
                             type="number" 
@@ -1853,7 +2027,7 @@
                             placeholder="0 表示无限制" 
                             class="form-input w-full"
                         >
-                        <p class="text-xs text-gray-500 mt-2">设置此 API Key 的最大 token 使用量，0 或留空表示无限制</p>
+                        <p class="text-xs text-gray-500 mt-2">设置在时间窗口内的最大 Token 使用量（需同时设置时间窗口），0 或留空表示无限制</p>
                     </div>
                     
                     <div>
@@ -1886,6 +2060,62 @@
                         <p class="text-xs text-gray-500 mt-2">修改绑定账号将影响此API Key的请求路由</p>
                     </div>
                     
+                    <div>
+                        <div class="flex items-center mb-3">
+                            <input 
+                                type="checkbox" 
+                                v-model="editApiKeyForm.enableModelRestriction" 
+                                id="editEnableModelRestriction"
+                                class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                            >
+                            <label for="editEnableModelRestriction" class="ml-2 text-sm font-semibold text-gray-700 cursor-pointer">
+                                启用模型限制
+                            </label>
+                        </div>
+                        
+                        <div v-if="editApiKeyForm.enableModelRestriction" class="space-y-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600 mb-2">限制的模型列表</label>
+                                <div class="flex flex-wrap gap-2 mb-3 min-h-[32px] p-2 bg-gray-50 rounded-lg border border-gray-200">
+                                    <span 
+                                        v-for="(model, index) in editApiKeyForm.restrictedModels" 
+                                        :key="index"
+                                        class="inline-flex items-center px-3 py-1 rounded-full text-sm bg-red-100 text-red-800"
+                                    >
+                                        {{ model }}
+                                        <button 
+                                            type="button"
+                                            @click="removeRestrictedModel(editApiKeyForm, index)"
+                                            class="ml-2 text-red-600 hover:text-red-800"
+                                        >
+                                            <i class="fas fa-times text-xs"></i>
+                                        </button>
+                                    </span>
+                                    <span v-if="editApiKeyForm.restrictedModels.length === 0" class="text-gray-400 text-sm">
+                                        暂无限制的模型
+                                    </span>
+                                </div>
+                                <div class="flex gap-2">
+                                    <input 
+                                        v-model="editApiKeyForm.modelInput"
+                                        @keydown.enter.prevent="addRestrictedModel(editApiKeyForm)"
+                                        type="text"
+                                        placeholder="输入模型名称，按回车添加"
+                                        class="form-input flex-1"
+                                    >
+                                    <button 
+                                        type="button"
+                                        @click="addRestrictedModel(editApiKeyForm)"
+                                        class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                                    >
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-2">设置此API Key无法访问的模型，例如：claude-opus-4-20250514</p>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="flex gap-3 pt-4">
                         <button 
                             type="button" 
@@ -1910,7 +2140,7 @@
 
         <!-- 新创建的 API Key 展示弹窗 -->
         <div v-if="showNewApiKeyModal" class="fixed inset-0 modal z-50 flex items-center justify-center p-4">
-            <div class="modal-content w-full max-w-lg p-8 mx-auto">
+            <div class="modal-content w-full max-w-lg p-8 mx-auto max-h-[90vh] overflow-y-auto custom-scrollbar">
                 <div class="flex items-center justify-between mb-6">
                     <div class="flex items-center gap-3">
                         <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center">
@@ -2004,7 +2234,7 @@
 
         <!-- 创建 Claude 账户模态框 -->
         <div v-if="showCreateAccountModal" class="fixed inset-0 modal z-50 flex items-center justify-center p-4">
-            <div class="modal-content w-full max-w-2xl p-8 mx-auto max-h-[90vh] overflow-y-auto">
+            <div class="modal-content w-full max-w-2xl p-8 mx-auto max-h-[90vh] overflow-y-auto custom-scrollbar">
                 <div class="flex items-center justify-between mb-6">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center">
@@ -2362,7 +2592,7 @@
 
         <!-- 编辑 Claude 账户模态框 -->
         <div v-if="showEditAccountModal" class="fixed inset-0 modal z-50 flex items-center justify-center p-4">
-            <div class="modal-content w-full max-w-2xl p-8 mx-auto max-h-[90vh] overflow-y-auto">
+            <div class="modal-content w-full max-w-2xl p-8 mx-auto max-h-[90vh] overflow-y-auto custom-scrollbar">
                 <div class="flex items-center justify-between mb-6">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
@@ -2558,7 +2788,7 @@
 
         <!-- 修改账户信息模态框 -->
         <div v-if="showChangePasswordModal" class="fixed inset-0 modal z-50 flex items-center justify-center p-4">
-            <div class="modal-content w-full max-w-md p-8 mx-auto">
+            <div class="modal-content w-full max-w-md p-8 mx-auto max-h-[90vh] flex flex-col">
                 <div class="flex items-center justify-between mb-6">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
@@ -2574,7 +2804,7 @@
                     </button>
                 </div>
                 
-                <form @submit.prevent="changePassword" class="space-y-6">
+                <form @submit.prevent="changePassword" class="space-y-6 modal-scroll-content custom-scrollbar flex-1">
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-3">当前用户名</label>
                         <input 

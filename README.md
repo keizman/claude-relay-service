@@ -6,12 +6,21 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 [![Redis](https://img.shields.io/badge/Redis-6+-red.svg)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com/)
+[![Docker Build](https://github.com/Wei-Shaw/claude-relay-service/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Wei-Shaw/claude-relay-service/actions/workflows/docker-publish.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/weishaw/claude-relay-service)](https://hub.docker.com/r/weishaw/claude-relay-service)
 
 **🔐 自行搭建Claude API中转服务，支持多账户管理** 
 
-[English](#english) • [中文文档](#中文文档) • [📸 界面预览](docs/preview.md)
+[English](#english) • [中文文档](#中文文档) • [📸 界面预览](docs/preview.md) • [📢 公告频道](https://t.me/claude_relay_service)
 
 </div>
+
+---
+
+## ⭐ 如果觉得有用，点个Star支持一下吧！
+
+> 开源不易，你的Star是我持续更新的动力 🚀  
+> 欢迎加入 [Telegram 公告频道](https://t.me/claude_relay_service) 获取最新动态
 
 ---
 
@@ -157,7 +166,7 @@ sudo systemctl start redis
 
 ```bash
 # 下载项目
-git clone https://github.com/Wei-Shaw/claude-relay-service.git
+git clone https://github.com/Wei-Shaw//claude-relay-service.git
 cd claude-relay-service
 
 # 安装依赖
@@ -202,6 +211,9 @@ module.exports = {
 ```bash
 # 初始化
 npm run setup # 会随机生成后台账号密码信息，存储在 data/init.json
+# 或者通过环境变量预设管理员凭据：
+# export ADMIN_USERNAME=cr_admin_custom
+# export ADMIN_PASSWORD=your-secure-password
 
 # 启动服务
 npm run service:start:daemon   # 后台运行（推荐）
@@ -212,13 +224,126 @@ npm run service:status
 
 ---
 
+## 🐳 Docker 部署（推荐）
+
+### 使用 Docker Hub 镜像（最简单）
+
+> 🚀 推荐使用官方镜像，自动构建，始终保持最新版本
+
+```bash
+# 拉取镜像（支持 amd64 和 arm64）
+docker pull weishaw/claude-relay-service:latest
+
+# 使用 docker run 运行
+docker run -d \
+  --name claude-relay \
+  -p 3000:3000 \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  -e ADMIN_USERNAME=my_admin \
+  -e ADMIN_PASSWORD=my_secure_password \
+  weishaw/claude-relay-service:latest
+
+# 或使用 docker-compose（推荐）
+# 创建 docker-compose.yml 文件：
+cat > docker-compose.yml << 'EOF'
+version: '3.8'
+services:
+  claude-relay:
+    image: weishaw/claude-relay-service:latest
+    container_name: claude-relay-service
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_HOST=redis
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: claude-relay-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:
+EOF
+
+# 启动服务
+docker-compose up -d
+```
+
+### 从源码构建
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/Wei-Shaw//claude-relay-service.git
+cd claude-relay-service
+
+# 2. 设置管理员账号密码（可选）
+# 方式一：自动生成（查看容器日志获取）
+docker-compose up -d
+
+# 方式二：预设账号密码
+export ADMIN_USERNAME=cr_admin_custom
+export ADMIN_PASSWORD=your-secure-password
+docker-compose up -d
+
+# 3. 查看管理员凭据
+# 自动生成的情况下：
+docker logs claude-relay-service | grep "管理员"
+
+# 或者直接查看挂载的文件：
+cat ./data/init.json
+```
+
+### Docker Compose 配置
+
+docker-compose.yml 已包含：
+- ✅ 自动初始化管理员账号
+- ✅ 数据持久化（logs和data目录自动挂载）
+- ✅ Redis数据库
+- ✅ 健康检查
+- ✅ 自动重启
+
+### 管理员凭据获取方式
+
+1. **查看容器日志**（推荐）
+   ```bash
+   docker logs claude-relay-service
+   ```
+
+2. **查看挂载的文件**
+   ```bash
+   cat ./data/init.json
+   ```
+
+3. **使用环境变量预设**
+   ```bash
+   # 在 .env 文件中设置
+   ADMIN_USERNAME=cr_admin_custom
+   ADMIN_PASSWORD=your-secure-password
+   ```
+
+---
+
 ## 🎮 开始使用
 
 ### 1. 打开管理界面
 
 浏览器访问：`http://你的服务器IP:3000/web`
 
-默认管理员账号：data/init.json 中寻找
+管理员账号：
+- 自动生成：查看 data/init.json
+- 环境变量预设：通过 ADMIN_USERNAME 和 ADMIN_PASSWORD 设置
+- Docker 部署：查看容器日志 `docker logs claude-relay-service`
 
 ### 2. 添加Claude账户
 

@@ -18,7 +18,11 @@ class ApiKeyService {
       expiresAt = null,
       claudeAccountId = null,
       isActive = true,
-      concurrencyLimit = 0
+      concurrencyLimit = 0,
+      rateLimitWindow = null,
+      rateLimitRequests = null,
+      enableModelRestriction = false,
+      restrictedModels = []
     } = options;
 
     // 生成简单的API Key (64字符十六进制)
@@ -33,8 +37,12 @@ class ApiKeyService {
       apiKey: hashedKey,
       tokenLimit: String(tokenLimit ?? 0),
       concurrencyLimit: String(concurrencyLimit ?? 0),
+      rateLimitWindow: String(rateLimitWindow ?? 0),
+      rateLimitRequests: String(rateLimitRequests ?? 0),
       isActive: String(isActive),
       claudeAccountId: claudeAccountId || '',
+      enableModelRestriction: String(enableModelRestriction),
+      restrictedModels: JSON.stringify(restrictedModels || []),
       createdAt: new Date().toISOString(),
       lastUsedAt: '',
       expiresAt: expiresAt || '',
@@ -53,8 +61,12 @@ class ApiKeyService {
       description: keyData.description,
       tokenLimit: parseInt(keyData.tokenLimit),
       concurrencyLimit: parseInt(keyData.concurrencyLimit),
+      rateLimitWindow: parseInt(keyData.rateLimitWindow || 0),
+      rateLimitRequests: parseInt(keyData.rateLimitRequests || 0),
       isActive: keyData.isActive === 'true',
       claudeAccountId: keyData.claudeAccountId,
+      enableModelRestriction: keyData.enableModelRestriction === 'true',
+      restrictedModels: JSON.parse(keyData.restrictedModels),
       createdAt: keyData.createdAt,
       expiresAt: keyData.expiresAt,
       createdBy: keyData.createdBy
@@ -88,19 +100,21 @@ class ApiKeyService {
         return { valid: false, error: 'API key has expired' };
       }
 
-      // 检查使用限制
+      // 获取使用统计（供返回数据使用）
       const usage = await redis.getUsageStats(keyData.id);
-      const tokenLimit = parseInt(keyData.tokenLimit);
-      
-      if (tokenLimit > 0 && usage.total.tokens >= tokenLimit) {
-        return { valid: false, error: 'Token limit exceeded' };
-      }
-
 
       // 更新最后使用时间（优化：只在实际API调用时更新，而不是验证时）
       // 注意：lastUsedAt的更新已移至recordUsage方法中
 
       logger.api(`🔓 API key validated successfully: ${keyData.id}`);
+
+      // 解析限制模型数据
+      let restrictedModels = [];
+      try {
+        restrictedModels = keyData.restrictedModels ? JSON.parse(keyData.restrictedModels) : [];
+      } catch (e) {
+        restrictedModels = [];
+      }
 
       return {
         valid: true,
@@ -109,7 +123,11 @@ class ApiKeyService {
           name: keyData.name,
           claudeAccountId: keyData.claudeAccountId,
           tokenLimit: parseInt(keyData.tokenLimit),
-              concurrencyLimit: parseInt(keyData.concurrencyLimit || 0),
+          concurrencyLimit: parseInt(keyData.concurrencyLimit || 0),
+          rateLimitWindow: parseInt(keyData.rateLimitWindow || 0),
+          rateLimitRequests: parseInt(keyData.rateLimitRequests || 0),
+          enableModelRestriction: keyData.enableModelRestriction === 'true',
+          restrictedModels: restrictedModels,
           usage
         }
       };
@@ -129,8 +147,16 @@ class ApiKeyService {
         key.usage = await redis.getUsageStats(key.id);
         key.tokenLimit = parseInt(key.tokenLimit);
         key.concurrencyLimit = parseInt(key.concurrencyLimit || 0);
+        key.rateLimitWindow = parseInt(key.rateLimitWindow || 0);
+        key.rateLimitRequests = parseInt(key.rateLimitRequests || 0);
         key.currentConcurrency = await redis.getConcurrency(key.id);
         key.isActive = key.isActive === 'true';
+        key.enableModelRestriction = key.enableModelRestriction === 'true';
+        try {
+          key.restrictedModels = key.restrictedModels ? JSON.parse(key.restrictedModels) : [];
+        } catch (e) {
+          key.restrictedModels = [];
+        }
         delete key.apiKey; // 不返回哈希后的key
       }
 
@@ -150,12 +176,20 @@ class ApiKeyService {
       }
 
       // 允许更新的字段
-      const allowedUpdates = ['name', 'description', 'tokenLimit', 'concurrencyLimit', 'isActive', 'claudeAccountId', 'expiresAt'];
+      const allowedUpdates = ['name', 'description', 'tokenLimit', 'concurrencyLimit', 'rateLimitWindow', 'rateLimitRequests', 'isActive', 'claudeAccountId', 'expiresAt', 'enableModelRestriction', 'restrictedModels'];
       const updatedData = { ...keyData };
 
       for (const [field, value] of Object.entries(updates)) {
         if (allowedUpdates.includes(field)) {
-          updatedData[field] = (value != null ? value : '').toString();
+          if (field === 'restrictedModels') {
+            // 特殊处理 restrictedModels 数组
+            updatedData[field] = JSON.stringify(value || []);
+          } else if (field === 'enableModelRestriction') {
+            // 布尔值转字符串
+            updatedData[field] = String(value);
+          } else {
+            updatedData[field] = (value != null ? value : '').toString();
+          }
         }
       }
 
