@@ -285,6 +285,10 @@ class ClaudeRelayService {
         const auth = proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : '';
         const socksUrl = `socks5://${auth}${proxy.host}:${proxy.port}`;
         return new SocksProxyAgent(socksUrl);
+      } else if (proxy.type === 'socks5h') {
+        const auth = proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : '';
+        const socksUrl = `socks5h://${auth}${proxy.host}:${proxy.port}`;
+        return new SocksProxyAgent(socksUrl);
       } else if (proxy.type === 'http' || proxy.type === 'https') {
         const auth = proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : '';
         const httpUrl = `${proxy.type}://${auth}${proxy.host}:${proxy.port}`;

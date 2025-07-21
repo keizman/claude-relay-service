@@ -187,17 +187,39 @@ router.delete('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
 router.post('/claude-accounts/generate-auth-url', authenticateAdmin, async (req, res) => {
   try {
     const { proxy } = req.body; // 接收代理配置
+    
+    logger.info('📋 Received OAuth URL generation request', {
+      hasProxy: !!proxy,
+      proxyType: proxy?.type || 'none',
+      proxyHost: proxy?.host || 'none',
+      proxyPort: proxy?.port || 'none',
+      hasProxyAuth: !!(proxy?.username && proxy?.password)
+    });
+    
     const oauthParams = await oauthHelper.generateOAuthParams();
     
     // 将codeVerifier和state临时存储到Redis，用于后续验证
     const sessionId = require('crypto').randomUUID();
-    await redis.setOAuthSession(sessionId, {
+    const sessionData = {
       codeVerifier: oauthParams.codeVerifier,
       state: oauthParams.state,
       codeChallenge: oauthParams.codeChallenge,
       proxy: proxy || null, // 存储代理配置
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10分钟过期
+    };
+    
+    await redis.setOAuthSession(sessionId, sessionData);
+    
+    logger.info('💾 OAuth session stored in Redis', {
+      sessionId: sessionId,
+      hasProxy: !!sessionData.proxy,
+      proxyStored: sessionData.proxy ? {
+        type: sessionData.proxy.type,
+        host: sessionData.proxy.host,
+        port: sessionData.proxy.port,
+        hasAuth: !!(sessionData.proxy.username && sessionData.proxy.password)
+      } : null
     });
     
     logger.success('🔗 Generated OAuth authorization URL with proxy support');
@@ -230,11 +252,32 @@ router.post('/claude-accounts/exchange-code', authenticateAdmin, async (req, res
       return res.status(400).json({ error: 'Session ID and authorization code (or callback URL) are required' });
     }
     
+    logger.info('🔄 Starting OAuth code exchange', {
+      sessionId: sessionId,
+      hasAuthCode: !!authorizationCode,
+      hasCallbackUrl: !!callbackUrl,
+      inputLength: (callbackUrl || authorizationCode || '').length
+    });
+    
     // 从Redis获取OAuth会话信息
     const oauthSession = await redis.getOAuthSession(sessionId);
     if (!oauthSession) {
+      logger.error('❌ OAuth session not found in Redis', { sessionId });
       return res.status(400).json({ error: 'Invalid or expired OAuth session' });
     }
+    
+    logger.info('📥 Retrieved OAuth session from Redis', {
+      sessionId: sessionId,
+      hasCodeVerifier: !!oauthSession.codeVerifier,
+      hasState: !!oauthSession.state,
+      hasProxy: !!oauthSession.proxy,
+      proxyFromRedis: oauthSession.proxy ? {
+        type: oauthSession.proxy.type,
+        host: oauthSession.proxy.host,
+        port: oauthSession.proxy.port,
+        hasAuth: !!(oauthSession.proxy.username && oauthSession.proxy.password)
+      } : null
+    });
     
     // 检查会话是否过期
     if (new Date() > new Date(oauthSession.expiresAt)) {
@@ -248,11 +291,25 @@ router.post('/claude-accounts/exchange-code', authenticateAdmin, async (req, res
     
     try {
       finalAuthCode = oauthHelper.parseCallbackUrl(inputValue);
+      logger.info('✅ Successfully parsed authorization code', {
+        codeLength: finalAuthCode.length,
+        codePrefix: finalAuthCode.substring(0, 10) + '...'
+      });
     } catch (parseError) {
+      logger.error('❌ Failed to parse authorization input', {
+        error: parseError.message,
+        inputLength: inputValue.length,
+        inputPrefix: inputValue.substring(0, 50) + '...'
+      });
       return res.status(400).json({ error: 'Failed to parse authorization input', message: parseError.message });
     }
     
     // 交换访问令牌
+    logger.info('🔄 About to exchange code for tokens with proxy config:', {
+      hasProxy: !!oauthSession.proxy,
+      proxyConfig: oauthSession.proxy
+    });
+    
     const tokenData = await oauthHelper.exchangeCodeForTokens(
       finalAuthCode,
       oauthSession.codeVerifier,
@@ -274,9 +331,8 @@ router.post('/claude-accounts/exchange-code', authenticateAdmin, async (req, res
     logger.error('❌ Failed to exchange authorization code:', {
       error: error.message,
       sessionId: req.body.sessionId,
-      // 不记录完整的授权码，只记录长度和前几个字符
-      codeLength: req.body.callbackUrl ? req.body.callbackUrl.length : (req.body.authorizationCode ? req.body.authorizationCode.length : 0),
-      codePrefix: req.body.callbackUrl ? req.body.callbackUrl.substring(0, 10) + '...' : (req.body.authorizationCode ? req.body.authorizationCode.substring(0, 10) + '...' : 'N/A')
+      codeLength: (req.body.callbackUrl || req.body.authorizationCode || '').length,
+      codePrefix: ((req.body.callbackUrl || req.body.authorizationCode || '').substring(0, 10) + '...')
     });
     res.status(500).json({ error: 'Failed to exchange authorization code', message: error.message });
   }
@@ -335,6 +391,36 @@ router.post('/claude-accounts', authenticateAdmin, async (req, res) => {
   }
 });
 
+// 刷新Claude账户token (具体路由要放在通用路由前面)
+router.post('/claude-accounts/:accountId/refresh', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params;
+    
+    const result = await claudeAccountService.refreshAccountToken(accountId);
+    
+    logger.success(`🔄 Admin refreshed token for Claude account: ${accountId}`);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('❌ Failed to refresh Claude account token:', error);
+    res.status(500).json({ error: 'Failed to refresh token', message: error.message });
+  }
+});
+
+// 切换Claude账户状态（启用/禁用）(具体路由要放在通用路由前面)
+router.post('/claude-accounts/:accountId/toggle-status', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params;
+    
+    const result = await claudeAccountService.toggleAccountStatus(accountId);
+    
+    logger.success(`🔄 Admin toggled status for Claude account: ${accountId}`);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('❌ Failed to toggle Claude account status:', error);
+    res.status(500).json({ error: 'Failed to toggle account status', message: error.message });
+  }
+});
+
 // 更新Claude账户
 router.put('/claude-accounts/:accountId', authenticateAdmin, async (req, res) => {
   try {
@@ -363,21 +449,6 @@ router.delete('/claude-accounts/:accountId', authenticateAdmin, async (req, res)
   } catch (error) {
     logger.error('❌ Failed to delete Claude account:', error);
     res.status(500).json({ error: 'Failed to delete Claude account', message: error.message });
-  }
-});
-
-// 刷新Claude账户token
-router.post('/claude-accounts/:accountId/refresh', authenticateAdmin, async (req, res) => {
-  try {
-    const { accountId } = req.params;
-    
-    const result = await claudeAccountService.refreshAccountToken(accountId);
-    
-    logger.success(`🔄 Admin refreshed token for Claude account: ${accountId}`);
-    res.json({ success: true, data: result });
-  } catch (error) {
-    logger.error('❌ Failed to refresh Claude account token:', error);
-    res.status(500).json({ error: 'Failed to refresh token', message: error.message });
   }
 });
 

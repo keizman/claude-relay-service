@@ -26,10 +26,22 @@ const config = {
     db: parseInt(process.env.REDIS_DB) || 0,
     connectTimeout: 10000,
     commandTimeout: 5000,
-    retryDelayOnFailover: 100,
+    retryDelayOnFailover: 500,        // 增加到500ms，减少重连频率
     maxRetriesPerRequest: 3,
     lazyConnect: true,
     enableTLS: process.env.REDIS_ENABLE_TLS === 'true',
+    // 新增优化配置
+    keepAlive: 30000,                 // 启用TCP KeepAlive，30秒
+    retryStrategy: (times) => {       // 自定义重连策略
+      const delay = Math.min(times * 200, 5000); // 增加延迟，最大5秒
+      return delay;
+    },
+    reconnectOnError: (err) => {      // 仅在特定错误时重连
+      const targetErrors = ['READONLY', 'ECONNRESET', 'ENOTFOUND', 'ENETUNREACH', 'ETIMEDOUT'];
+      return targetErrors.some(target => err.message.includes(target));
+    },
+    maxLoadingRetryTime: 10000,       // 加载重试时间
+    socketTimeout: 60000,             // Socket超时时间60秒
   },
 
   // 🎯 Claude API配置
@@ -41,7 +53,7 @@ const config = {
 
   // 🌐 代理配置
   proxy: {
-    timeout: parseInt(process.env.DEFAULT_PROXY_TIMEOUT) || 30000,
+    timeout: parseInt(process.env.DEFAULT_PROXY_TIMEOUT) || 120000, // 增加到120秒(2分钟)，适应Claude API较长的响应时间
     maxRetries: parseInt(process.env.MAX_PROXY_RETRIES) || 3
   },
 

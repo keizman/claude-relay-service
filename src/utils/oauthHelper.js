@@ -92,23 +92,63 @@ function generateOAuthParams() {
  */
 function createProxyAgent(proxyConfig) {
     if (!proxyConfig) {
+        logger.info('🌐 No proxy configuration provided, using direct connection');
         return null;
     }
+
+    logger.info('🌐 Creating proxy agent with config:', {
+        type: proxyConfig.type,
+        host: proxyConfig.host,
+        port: proxyConfig.port,
+        hasUsername: !!proxyConfig.username,
+        hasPassword: !!proxyConfig.password,
+        username: proxyConfig.username ? `${proxyConfig.username.substring(0, 3)}***` : 'none'
+    });
 
     try {
         if (proxyConfig.type === 'socks5') {
             const auth = proxyConfig.username && proxyConfig.password ? `${proxyConfig.username}:${proxyConfig.password}@` : '';
             const socksUrl = `socks5://${auth}${proxyConfig.host}:${proxyConfig.port}`;
+            const maskedUrl = `socks5://${proxyConfig.username ? `${proxyConfig.username}:***@` : ''}${proxyConfig.host}:${proxyConfig.port}`;
+            
+            logger.info('🌐 Creating SOCKS5 proxy agent:', {
+                url: maskedUrl,
+                fullUrlLength: socksUrl.length
+            });
+            
+            return new SocksProxyAgent(socksUrl);
+        } else if (proxyConfig.type === 'socks5h') {
+            const auth = proxyConfig.username && proxyConfig.password ? `${proxyConfig.username}:${proxyConfig.password}@` : '';
+            const socksUrl = `socks5h://${auth}${proxyConfig.host}:${proxyConfig.port}`;
+            const maskedUrl = `socks5h://${proxyConfig.username ? `${proxyConfig.username}:***@` : ''}${proxyConfig.host}:${proxyConfig.port}`;
+            
+            logger.info('🌐 Creating SOCKS5H proxy agent (hostname lookup through proxy):', {
+                url: maskedUrl,
+                fullUrlLength: socksUrl.length
+            });
+            
             return new SocksProxyAgent(socksUrl);
         } else if (proxyConfig.type === 'http' || proxyConfig.type === 'https') {
             const auth = proxyConfig.username && proxyConfig.password ? `${proxyConfig.username}:${proxyConfig.password}@` : '';
             const httpUrl = `${proxyConfig.type}://${auth}${proxyConfig.host}:${proxyConfig.port}`;
+            const maskedUrl = `${proxyConfig.type}://${proxyConfig.username ? `${proxyConfig.username}:***@` : ''}${proxyConfig.host}:${proxyConfig.port}`;
+            
+            logger.info('🌐 Creating HTTP proxy agent:', {
+                url: maskedUrl,
+                fullUrlLength: httpUrl.length
+            });
+            
             return new HttpsProxyAgent(httpUrl);
         }
     } catch (error) {
-        console.warn('⚠️ Invalid proxy configuration:', error);
+        logger.error('❌ Failed to create proxy agent:', {
+            error: error.message,
+            stack: error.stack,
+            proxyType: proxyConfig.type
+        });
     }
 
+    logger.warn('⚠️ Unsupported proxy type:', proxyConfig.type);
     return null;
 }
 
@@ -124,6 +164,26 @@ async function exchangeCodeForTokens(authorizationCode, codeVerifier, state, pro
     // 清理授权码，移除URL片段
     const cleanedCode = authorizationCode.split('#')[0]?.split('&')[0] ?? authorizationCode;
     
+    logger.info('🔄 Starting OAuth token exchange process', {
+        codeLength: cleanedCode.length,
+        codePrefix: cleanedCode.substring(0, 10) + '...',
+        hasProxyConfig: !!proxyConfig,
+        targetUrl: OAUTH_CONFIG.TOKEN_URL
+    });
+    
+    // 详细记录代理配置
+    if (proxyConfig) {
+        logger.info('🌐 Proxy configuration received for OAuth:', {
+            type: proxyConfig.type,
+            host: proxyConfig.host,
+            port: proxyConfig.port,
+            hasAuth: !!(proxyConfig.username && proxyConfig.password),
+            configKeys: Object.keys(proxyConfig)
+        });
+    } else {
+        logger.info('🌐 No proxy configuration for OAuth, using direct connection');
+    }
+    
     const params = {
         grant_type: 'authorization_code',
         client_id: OAUTH_CONFIG.CLIENT_ID,
@@ -135,6 +195,12 @@ async function exchangeCodeForTokens(authorizationCode, codeVerifier, state, pro
 
     // 创建代理agent
     const agent = createProxyAgent(proxyConfig);
+    
+    if (agent) {
+        logger.info('✅ Proxy agent created successfully for OAuth token exchange');
+    } else if (proxyConfig) {
+        logger.error('❌ Failed to create proxy agent despite having proxy config');
+    }
 
     try {
         logger.debug('🔄 Attempting OAuth token exchange', {
@@ -142,7 +208,8 @@ async function exchangeCodeForTokens(authorizationCode, codeVerifier, state, pro
             codeLength: cleanedCode.length,
             codePrefix: cleanedCode.substring(0, 10) + '...',
             hasProxy: !!proxyConfig,
-            proxyType: proxyConfig?.type || 'none'
+            proxyType: proxyConfig?.type || 'none',
+            proxyHost: proxyConfig?.host || 'none'
         });
 
         const response = await axios.post(OAUTH_CONFIG.TOKEN_URL, params, {
@@ -213,9 +280,31 @@ async function exchangeCodeForTokens(authorizationCode, codeVerifier, state, pro
             logger.error('❌ OAuth token exchange failed with network error', {
                 message: error.message,
                 code: error.code,
-                hasProxy: !!proxyConfig
+                hasProxy: !!proxyConfig,
+                proxyConfig: proxyConfig ? {
+                    type: proxyConfig.type,
+                    host: proxyConfig.host,
+                    port: proxyConfig.port,
+                    hasAuth: !!(proxyConfig.username && proxyConfig.password)
+                } : null,
+                errno: error.errno,
+                syscall: error.syscall,
+                address: error.address,
+                port: error.port
             });
-            throw new Error('Token exchange failed: No response from server (network error or timeout)');
+            
+            let errorDetails = 'No response from server (network error or timeout)';
+            if (error.message.includes('ECONNREFUSED')) {
+                errorDetails = 'Connection refused - proxy server may be unreachable';
+            } else if (error.message.includes('ENOTFOUND')) {
+                errorDetails = 'Host not found - check proxy host address';
+            } else if (error.message.includes('ETIMEDOUT')) {
+                errorDetails = 'Connection timeout - proxy server may be slow or unreachable';
+            } else if (error.message.includes('Socks5')) {
+                errorDetails = `SOCKS5 proxy error: ${error.message}`;
+            }
+            
+            throw new Error(`Token exchange failed: ${errorDetails}`);
         } else {
             // 其他错误
             logger.error('❌ OAuth token exchange failed with unknown error', {
