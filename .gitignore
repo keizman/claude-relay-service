@@ -17,6 +17,9 @@ pnpm-debug.log*
 data/
 !data/.gitkeep
 
+# Redis data directory
+redis_data/
+
 # Logs directory
 logs/
 *.log

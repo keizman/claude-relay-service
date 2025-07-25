@@ -1,7 +1,7 @@
 {
   "name": "claude-relay-service",
   "version": "1.0.0",
-  "description": "Claude Code API relay service with multi-account management and API key authentication",
+  "description": "Claude Code API relay service with multi-account management, OpenAI compatibility, and API key authentication",
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
@@ -18,6 +18,7 @@
     "service:stop": "node scripts/manage.js stop",
     "service:restart": "node scripts/manage.js restart",
     "service:restart:daemon": "node scripts/manage.js restart -d",
+    "service:logs:follow": "node scripts/manage.js logs -f",
     "service:restart:d": "node scripts/manage.js restart -d",
     "service:status": "node scripts/manage.js status",
     "service:logs": "node scripts/manage.js logs",
@@ -36,6 +37,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "google-auth-library": "^10.1.0",
     "helmet": "^7.1.0",
     "https-proxy-agent": "^7.0.2",
     "inquirer": "^9.2.15",

@@ -6,7 +6,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 [![Redis](https://img.shields.io/badge/Redis-6+-red.svg)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com/)
-[![Docker Build](https://github.com/Wei-Shaw/claude-relay-service/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Wei-Shaw/claude-relay-service/actions/workflows/docker-publish.yml)
+[![Docker Build](https://github.com/Wei-Shaw/claude-relay-service/actions/workflows/auto-release-pipeline.yml/badge.svg)](https://github.com/Wei-Shaw/claude-relay-service/actions/workflows/auto-release-pipeline.yml)
 [![Docker Pulls](https://img.shields.io/docker/pulls/weishaw/claude-relay-service)](https://hub.docker.com/r/weishaw/claude-relay-service)
 
 **🔐 自行搭建Claude API中转服务，支持多账户管理** 
@@ -51,6 +51,10 @@
 - ⚡ **稳定性**: 第三方镜像站经常故障不稳定，影响效率 ？
 
 如果有以上困惑，那这个项目可能适合你。
+
+> 💡 **热心网友福利**  
+> 热心网友正在用本项目，正在拼车官方Claude Code Max 20X 200刀版本，是现在最稳定的方案。  
+> 有需要自取: [https://ctok.ai/](https://ctok.ai/)
 
 ### 适合的场景
 
@@ -122,6 +126,7 @@
 - **硬盘**: 30GB可用空间
 - **网络**: 能访问到Anthropic API（建议使用US地区的机器）
 - **建议**: 2核4G的基本够了，网络尽量选回国线路快一点的（为了提高速度，建议不要开代理或者设置服务器的IP直连）
+- **经验**: 阿里云、腾讯云的海外主机经测试会被Cloudflare拦截，无法直接访问claude api
 
 ### 软件要求
 - **Node.js** 18或更高版本
@@ -234,17 +239,31 @@ npm run service:status
 # 拉取镜像（支持 amd64 和 arm64）
 docker pull weishaw/claude-relay-service:latest
 
-# 使用 docker run 运行
+# 使用 docker run 运行（注意设置必需的环境变量）
 docker run -d \
   --name claude-relay \
   -p 3000:3000 \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/logs:/app/logs \
+  -e JWT_SECRET=your-random-secret-key-at-least-32-chars \
+  -e ENCRYPTION_KEY=your-32-character-encryption-key \
+  -e REDIS_HOST=redis \
   -e ADMIN_USERNAME=my_admin \
   -e ADMIN_PASSWORD=my_secure_password \
   weishaw/claude-relay-service:latest
 
 # 或使用 docker-compose（推荐）
+# 创建 .env 文件用于 docker-compose 的环境变量：
+cat > .env << 'EOF'
+# 必填：安全密钥（请修改为随机值）
+JWT_SECRET=your-random-secret-key-at-least-32-chars
+ENCRYPTION_KEY=your-32-character-encryption-key
+
+# 可选：管理员凭据
+ADMIN_USERNAME=cr_admin
+ADMIN_PASSWORD=your-secure-password
+EOF
+
 # 创建 docker-compose.yml 文件：
 cat > docker-compose.yml << 'EOF'
 version: '3.8'
@@ -256,6 +275,8 @@ services:
     ports:
       - "3000:3000"
     environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - REDIS_HOST=redis
       - ADMIN_USERNAME=${ADMIN_USERNAME:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
@@ -287,16 +308,21 @@ docker-compose up -d
 git clone https://github.com/Wei-Shaw//claude-relay-service.git
 cd claude-relay-service
 
-# 2. 设置管理员账号密码（可选）
-# 方式一：自动生成（查看容器日志获取）
+# 2. 创建环境变量文件
+cat > .env << 'EOF'
+# 必填：安全密钥（请修改为随机值）
+JWT_SECRET=your-random-secret-key-at-least-32-chars
+ENCRYPTION_KEY=your-32-character-encryption-key
+
+# 可选：管理员凭据
+ADMIN_USERNAME=cr_admin_custom
+ADMIN_PASSWORD=your-secure-password
+EOF
+
+# 3. 启动服务
 docker-compose up -d
 
-# 方式二：预设账号密码
-export ADMIN_USERNAME=cr_admin_custom
-export ADMIN_PASSWORD=your-secure-password
-docker-compose up -d
-
-# 3. 查看管理员凭据
+# 4. 查看管理员凭据
 # 自动生成的情况下：
 docker logs claude-relay-service | grep "管理员"
 
@@ -312,6 +338,19 @@ docker-compose.yml 已包含：
 - ✅ Redis数据库
 - ✅ 健康检查
 - ✅ 自动重启
+- ✅ 所有配置通过环境变量管理
+
+### 环境变量说明
+
+#### 必填项
+- `JWT_SECRET`: JWT密钥，至少32个字符
+- `ENCRYPTION_KEY`: 加密密钥，必须是32个字符
+
+#### 可选项
+- `ADMIN_USERNAME`: 管理员用户名（不设置则自动生成）
+- `ADMIN_PASSWORD`: 管理员密码（不设置则自动生成）
+- `LOG_LEVEL`: 日志级别（默认：info）
+- 更多配置项请参考 `.env.example` 文件
 
 ### 管理员凭据获取方式
 
@@ -385,6 +424,32 @@ export ANTHROPIC_AUTH_TOKEN="后台创建的API密钥"
 ```bash
 claude
 ```
+
+### 5. 第三方工具API接入
+
+本服务支持多种API端点格式，方便接入不同的第三方工具（如Cherry Studio等）：
+
+**Claude标准格式：**
+```
+# 如果工具支持Claude标准格式 那么推荐使用该接口
+http://你的服务器:3000/claude/  
+```
+
+**OpenAI兼容格式：**
+```
+# 适用于需要OpenAI格式的第三方工具
+http://你的服务器:3000/openai/claude/v1/
+```
+
+**接入示例：**
+- **Cherry Studio**: 使用OpenAI格式 `http://你的服务器:3000/openai/claude/v1/`
+- **其他支持自定义API的工具**: 根据工具要求选择合适的格式
+
+**重要说明：**
+- 所有格式都支持相同的功能，仅是路径不同
+- `/api/v1/messages` = `/claude/v1/messages` = `/openai/claude/v1/messages`
+- 选择适合你使用工具的格式即可
+- 支持所有Claude API端点（messages、models等）
 
 ---
 

@@ -23,7 +23,7 @@ const app = createApp({
             tabs: [
                 { key: 'dashboard', name: '仪表板', icon: 'fas fa-tachometer-alt' },
                 { key: 'apiKeys', name: 'API Keys', icon: 'fas fa-key' },
-                { key: 'accounts', name: 'Claude账户', icon: 'fas fa-user-circle' },
+                { key: 'accounts', name: '账户管理', icon: 'fas fa-user-circle' },
                 { key: 'tutorial', name: '使用教程', icon: 'fas fa-graduation-cap' }
             ],
             
@@ -86,6 +86,7 @@ const app = createApp({
                 topApiKeys: [],
                 totalApiKeys: 0
             },
+            apiKeysTrendMetric: 'requests', // 'requests' 或 'tokens' - 默认显示请求次数
             
             // 统一的日期筛选
             dateFilter: {
@@ -120,6 +121,8 @@ const app = createApp({
                 rateLimitWindow: '',
                 rateLimitRequests: '',
                 claudeAccountId: '',
+                geminiAccountId: '',
+                permissions: 'all', // 'claude', 'gemini', 'all'
                 enableModelRestriction: false,
                 restrictedModels: [],
                 modelInput: ''
@@ -163,6 +166,8 @@ const app = createApp({
                 rateLimitWindow: '',
                 rateLimitRequests: '',
                 claudeAccountId: '',
+                geminiAccountId: '',
+                permissions: 'all',
                 enableModelRestriction: false,
                 restrictedModels: [],
                 modelInput: ''
@@ -174,6 +179,7 @@ const app = createApp({
             showCreateAccountModal: false,
             createAccountLoading: false,
             accountForm: {
+                platform: 'claude', // 'claude' 或 'gemini'
                 name: '',
                 description: '',
                 addType: 'oauth', // 'oauth' 或 'manual'
@@ -184,7 +190,8 @@ const app = createApp({
                 proxyHost: '',
                 proxyPort: '',
                 proxyUsername: '',
-                proxyPassword: ''
+                proxyPassword: '',
+                projectId: '' // Gemini 项目编号
             },
             
             // 编辑账户相关
@@ -192,6 +199,7 @@ const app = createApp({
             editAccountLoading: false,
             editAccountForm: {
                 id: '',
+                platform: 'claude',
                 name: '',
                 description: '',
                 accountType: 'shared',
@@ -202,7 +210,8 @@ const app = createApp({
                 proxyHost: '',
                 proxyPort: '',
                 proxyUsername: '',
-                proxyPassword: ''
+                proxyPassword: '',
+                projectId: '' // Gemini 项目编号
             },
             
             // OAuth 相关
@@ -212,6 +221,15 @@ const app = createApp({
                 sessionId: '',
                 authUrl: '',
                 callbackUrl: ''
+            },
+            
+            // Gemini OAuth 相关
+            geminiOauthPolling: false,
+            geminiOauthInterval: null,
+            geminiOauthData: {
+                sessionId: '',
+                authUrl: '',
+                code: ''
             },
             
             // 用户菜单和账户修改相关
@@ -228,6 +246,30 @@ const app = createApp({
                 confirmPassword: ''
             },
             
+            // 确认弹窗相关
+            showConfirmModal: false,
+            confirmModal: {
+                title: '',
+                message: '',
+                confirmText: '继续',
+                cancelText: '取消',
+                onConfirm: null,
+                onCancel: null
+            },
+            
+            // 版本管理相关
+            versionInfo: {
+                current: '',  // 当前版本
+                latest: '',   // 最新版本
+                hasUpdate: false,  // 是否有更新
+                checkingUpdate: false,  // 正在检查更新
+                lastChecked: null,  // 上次检查时间
+                releaseInfo: null,  // 最新版本的发布信息
+                githubRepo: 'wei-shaw/claude-relay-service',  // GitHub仓库
+                showReleaseNotes: false,  // 是否显示发布说明
+                autoCheckInterval: null,  // 自动检查定时器
+                noUpdateMessage: false  // 显示"已是最新版"提醒
+            }
         }
     },
     
@@ -248,6 +290,9 @@ const app = createApp({
     mounted() {
         console.log('Vue app mounted, authToken:', !!this.authToken, 'activeTab:', this.activeTab);
         
+        // 从URL参数中读取tab信息
+        this.initializeTabFromUrl();
+        
         // 初始化防抖函数
         this.setTrendPeriod = this.debounce(this._setTrendPeriod, 300);
         
@@ -261,11 +306,19 @@ const app = createApp({
             }
         });
         
+        // 监听浏览器前进后退按钮事件
+        window.addEventListener('popstate', () => {
+            this.initializeTabFromUrl();
+        });
+        
         if (this.authToken) {
             this.isLoggedIn = true;
             
             // 加载当前用户信息
             this.loadCurrentUser();
+            
+            // 加载版本信息
+            this.loadCurrentVersion();
             
             // 初始化日期筛选器和图表数据
             this.initializeDateFilter();
@@ -293,6 +346,10 @@ const app = createApp({
     
     beforeUnmount() {
         this.cleanupCharts();
+        // 清理版本检查定时器
+        if (this.versionInfo.autoCheckInterval) {
+            clearInterval(this.versionInfo.autoCheckInterval);
+        }
     },
     
     watch: {
@@ -308,10 +365,120 @@ const app = createApp({
                 this.loadCurrentTabData();
             },
             immediate: false
+        },
+        'geminiOauthData.code': {
+            handler(newValue) {
+                if (newValue) {
+                    this.handleGeminiAuthCodeInput(newValue);
+                }
+            }
         }
     },
     
     methods: {
+        // 从URL读取tab参数并设置activeTab
+        initializeTabFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const tabParam = urlParams.get('tab');
+            
+            // 检查tab参数是否有效
+            const validTabs = this.tabs.map(tab => tab.key);
+            if (tabParam && validTabs.includes(tabParam)) {
+                this.activeTab = tabParam;
+            }
+        },
+        
+        // 切换tab并更新URL
+        switchTab(tabKey) {
+            if (this.activeTab !== tabKey) {
+                this.activeTab = tabKey;
+                this.updateUrlTab(tabKey);
+            }
+        },
+        
+        // 更新URL中的tab参数
+        updateUrlTab(tabKey) {
+            const url = new URL(window.location.href);
+            if (tabKey === 'dashboard') {
+                // 如果是默认的dashboard标签，移除tab参数
+                url.searchParams.delete('tab');
+            } else {
+                url.searchParams.set('tab', tabKey);
+            }
+            
+            // 使用pushState更新URL但不刷新页面
+            window.history.pushState({}, '', url.toString());
+        },
+        
+        // 统一的API请求方法，处理token过期等错误
+        async apiRequest(url, options = {}) {
+            try {
+                const defaultOptions = {
+                    headers: {
+                        'Authorization': 'Bearer ' + this.authToken,
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    },
+                    ...options
+                };
+                
+                const response = await fetch(url, defaultOptions);
+                const data = await response.json();
+                
+                // 检查是否是token过期错误
+                if (!response.ok && (response.status === 401 || 
+                    (data.error === 'Invalid admin token' || 
+                     data.message === 'Invalid or expired admin session'))) {
+                    // 清理本地存储并刷新页面
+                    localStorage.removeItem('authToken');
+                    this.authToken = null;
+                    this.isLoggedIn = false;
+                    location.reload();
+                    return null;
+                }
+                
+                return data;
+            } catch (error) {
+                console.error('API request error:', error);
+                throw error;
+            }
+        },
+        
+        // 显示确认弹窗
+        showConfirm(title, message, confirmText = '继续', cancelText = '取消') {
+            return new Promise((resolve) => {
+                this.confirmModal = {
+                    title,
+                    message,
+                    confirmText,
+                    cancelText,
+                    onConfirm: () => {
+                        this.showConfirmModal = false;
+                        resolve(true);
+                    },
+                    onCancel: () => {
+                        this.showConfirmModal = false;
+                        resolve(false);
+                    }
+                };
+                this.showConfirmModal = true;
+            });
+        },
+        
+        // 处理确认弹窗确定按钮
+        handleConfirmOk() {
+            if (this.confirmModal.onConfirm) {
+                this.confirmModal.onConfirm();
+            }
+        },
+        
+        // 处理确认弹窗取消按钮
+        handleConfirmCancel() {
+            if (this.confirmModal.onCancel) {
+                this.confirmModal.onCancel();
+            }
+        },
+        
         // 获取绑定账号名称
         getBoundAccountName(accountId) {
             const account = this.accounts.find(acc => acc.id === accountId);
@@ -320,7 +487,9 @@ const app = createApp({
         
         // 获取绑定到特定账号的API Key数量
         getBoundApiKeysCount(accountId) {
-            return this.apiKeys.filter(key => key.claudeAccountId === accountId).length;
+            return this.apiKeys.filter(key => 
+                key.claudeAccountId === accountId || key.geminiAccountId === accountId
+            ).length;
         },
         
         // 添加限制模型
@@ -422,6 +591,7 @@ const app = createApp({
         openEditAccountModal(account) {
             this.editAccountForm = {
                 id: account.id,
+                platform: account.platform || 'claude',
                 name: account.name,
                 description: account.description || '',
                 accountType: account.accountType || 'shared',
@@ -432,7 +602,8 @@ const app = createApp({
                 proxyHost: account.proxy ? account.proxy.host : '',
                 proxyPort: account.proxy ? account.proxy.port : '',
                 proxyUsername: account.proxy ? account.proxy.username : '',
-                proxyPassword: account.proxy ? account.proxy.password : ''
+                proxyPassword: account.proxy ? account.proxy.password : '',
+                projectId: account.projectId || '' // 添加项目编号
             };
             this.showEditAccountModal = true;
         },
@@ -442,6 +613,7 @@ const app = createApp({
             this.showEditAccountModal = false;
             this.editAccountForm = {
                 id: '',
+                platform: 'claude',
                 name: '',
                 description: '',
                 accountType: 'shared',
@@ -452,12 +624,29 @@ const app = createApp({
                 proxyHost: '',
                 proxyPort: '',
                 proxyUsername: '',
-                proxyPassword: ''
+                proxyPassword: '',
+                projectId: '' // 重置项目编号
             };
         },
         
         // 更新账户
         async updateAccount() {
+            // 对于Gemini账户，检查项目编号
+            if (this.editAccountForm.platform === 'gemini') {
+                if (!this.editAccountForm.projectId || this.editAccountForm.projectId.trim() === '') {
+                    // 使用自定义确认弹窗
+                    const confirmed = await this.showConfirm(
+                        '项目编号未填写',
+                        '您尚未填写项目编号。\n\n如果您的Google账号绑定了Google Cloud或被识别为Workspace账号，需要提供项目编号。\n如果您使用的是普通个人账号，可以继续不填写。',
+                        '继续保存',
+                        '返回填写'
+                    );
+                    if (!confirmed) {
+                        return;
+                    }
+                }
+            }
+            
             this.editAccountLoading = true;
             try {
                 // 验证账户类型切换
@@ -478,19 +667,42 @@ const app = createApp({
                 let updateData = {
                     name: this.editAccountForm.name,
                     description: this.editAccountForm.description,
-                    accountType: this.editAccountForm.accountType
+                    accountType: this.editAccountForm.accountType,
+                    projectId: this.editAccountForm.projectId || '' // 添加项目编号
                 };
                 
                 // 只在有值时才更新 token
                 if (this.editAccountForm.accessToken.trim()) {
-                    // 构建新的 OAuth 数据
-                    const newOauthData = {
-                        accessToken: this.editAccountForm.accessToken,
-                        refreshToken: this.editAccountForm.refreshToken || '',
-                        expiresAt: Date.now() + (365 * 24 * 60 * 60 * 1000), // 默认设置1年后过期
-                        scopes: ['user:inference']
-                    };
-                    updateData.claudeAiOauth = newOauthData;
+                    if (this.editAccountForm.platform === 'gemini') {
+                        // Gemini OAuth 数据格式
+                        // 如果有 Refresh Token，设置10分钟过期；否则设置1年
+                        const expiresInMs = this.editAccountForm.refreshToken 
+                            ? (10 * 60 * 1000) // 10分钟
+                            : (365 * 24 * 60 * 60 * 1000); // 1年
+                        
+                        const newOauthData = {
+                            access_token: this.editAccountForm.accessToken,
+                            refresh_token: this.editAccountForm.refreshToken || '',
+                            scope: 'https://www.googleapis.com/auth/cloud-platform',
+                            token_type: 'Bearer',
+                            expiry_date: Date.now() + expiresInMs
+                        };
+                        updateData.geminiOauth = newOauthData;
+                    } else {
+                        // Claude OAuth 数据格式
+                        // 如果有 Refresh Token，设置10分钟过期；否则设置1年
+                        const expiresInMs = this.editAccountForm.refreshToken 
+                            ? (10 * 60 * 1000) // 10分钟
+                            : (365 * 24 * 60 * 60 * 1000); // 1年
+                        
+                        const newOauthData = {
+                            accessToken: this.editAccountForm.accessToken,
+                            refreshToken: this.editAccountForm.refreshToken || '',
+                            expiresAt: Date.now() + expiresInMs,
+                            scopes: ['user:inference']
+                        };
+                        updateData.claudeAiOauth = newOauthData;
+                    }
                 }
                 
                 // 更新代理配置
@@ -506,7 +718,12 @@ const app = createApp({
                     updateData.proxy = null;
                 }
                 
-                const response = await fetch(`/admin/claude-accounts/${this.editAccountForm.id}`, {
+                // 根据平台选择端点
+                const endpoint = this.editAccountForm.platform === 'gemini' 
+                    ? `/admin/gemini-accounts/${this.editAccountForm.id}`
+                    : `/admin/claude-accounts/${this.editAccountForm.id}`;
+                
+                const response = await fetch(endpoint, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -549,6 +766,7 @@ const app = createApp({
         // 重置账户表单
         resetAccountForm() {
             this.accountForm = {
+                platform: 'claude',
                 name: '',
                 description: '',
                 addType: 'oauth',
@@ -559,7 +777,8 @@ const app = createApp({
                 proxyHost: '',
                 proxyPort: '',
                 proxyUsername: '',
-                proxyPassword: ''
+                proxyPassword: '',
+                projectId: '' // 重置项目编号
             };
             this.oauthStep = 1;
             this.oauthData = {
@@ -567,10 +786,37 @@ const app = createApp({
                 authUrl: '',
                 callbackUrl: ''
             };
+            this.geminiOauthData = {
+                sessionId: '',
+                authUrl: '',
+                code: ''
+            };
+            // 停止 Gemini OAuth 轮询
+            if (this.geminiOauthInterval) {
+                clearInterval(this.geminiOauthInterval);
+                this.geminiOauthInterval = null;
+            }
+            this.geminiOauthPolling = false;
         },
         
         // OAuth步骤前进
-        nextOAuthStep() {
+        async nextOAuthStep() {
+            // 对于Gemini账户，检查项目编号
+            if (this.accountForm.platform === 'gemini' && this.oauthStep === 1 && this.accountForm.addType === 'oauth') {
+                if (!this.accountForm.projectId || this.accountForm.projectId.trim() === '') {
+                    // 使用自定义确认弹窗
+                    const confirmed = await this.showConfirm(
+                        '项目编号未填写',
+                        '您尚未填写项目编号。\n\n如果您的Google账号绑定了Google Cloud或被识别为Workspace账号，需要提供项目编号。\n如果您使用的是普通个人账号，可以继续不填写。',
+                        '继续',
+                        '返回填写'
+                    );
+                    if (!confirmed) {
+                        return;
+                    }
+                }
+            }
+            
             if (this.oauthStep < 3) {
                 this.oauthStep++;
             }
@@ -592,22 +838,31 @@ const app = createApp({
                     };
                 }
 
-                const response = await fetch('/admin/claude-accounts/generate-auth-url', {
+                const endpoint = this.accountForm.platform === 'gemini' 
+                    ? '/admin/gemini-accounts/generate-auth-url'
+                    : '/admin/claude-accounts/generate-auth-url';
+
+                const data = await this.apiRequest(endpoint, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + this.authToken
-                    },
                     body: JSON.stringify({
                         proxy: proxy
                     })
                 });
                 
-                const data = await response.json();
+                if (!data) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
                 
                 if (data.success) {
-                    this.oauthData.authUrl = data.data.authUrl;
-                    this.oauthData.sessionId = data.data.sessionId;
+                    if (this.accountForm.platform === 'gemini') {
+                        this.geminiOauthData.authUrl = data.data.authUrl;
+                        this.geminiOauthData.sessionId = data.data.sessionId;
+                        // 不再自动开始轮询，改为手动输入授权码
+                    } else {
+                        this.oauthData.authUrl = data.data.authUrl;
+                        this.oauthData.sessionId = data.data.sessionId;
+                    }
                     this.showToast('授权链接生成成功！', 'success', '生成成功');
                 } else {
                     this.showToast(data.message || '生成失败', 'error', '生成失败');
@@ -633,22 +888,27 @@ const app = createApp({
         
         // 创建OAuth账户
         async createOAuthAccount() {
+            // 如果是 Gemini，不应该调用这个方法
+            if (this.accountForm.platform === 'gemini') {
+                console.error('createOAuthAccount should not be called for Gemini');
+                return;
+            }
+            
             this.createAccountLoading = true;
             try {
                 // 首先交换authorization code获取token
-                const exchangeResponse = await fetch('/admin/claude-accounts/exchange-code', {
+                const exchangeData = await this.apiRequest('/admin/claude-accounts/exchange-code', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + this.authToken
-                    },
                     body: JSON.stringify({
                         sessionId: this.oauthData.sessionId,
                         callbackUrl: this.oauthData.callbackUrl
                     })
                 });
                 
-                const exchangeData = await exchangeResponse.json();
+                if (!exchangeData) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
                 
                 if (!exchangeData.success) {
                     // Display detailed error information
@@ -671,12 +931,8 @@ const app = createApp({
                 }
                 
                 // 创建账户
-                const createResponse = await fetch('/admin/claude-accounts', {
+                const createData = await this.apiRequest('/admin/claude-accounts', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + this.authToken
-                    },
                     body: JSON.stringify({
                         name: this.accountForm.name,
                         description: this.accountForm.description,
@@ -686,7 +942,10 @@ const app = createApp({
                     })
                 });
                 
-                const createData = await createResponse.json();
+                if (!createData) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
                 
                 if (createData.success) {
                     this.showToast('OAuth账户创建成功！', 'success', '账户创建成功');
@@ -735,28 +994,65 @@ const app = createApp({
                     };
                 }
                 
-                // 构建手动 OAuth 数据
-                const manualOauthData = {
-                    accessToken: this.accountForm.accessToken,
-                    refreshToken: this.accountForm.refreshToken || '',
-                    expiresAt: Date.now() + (365 * 24 * 60 * 60 * 1000), // 默认设置1年后过期
-                    scopes: ['user:inference'] // 默认权限
-                };
+                // 根据平台构建 OAuth 数据
+                let endpoint, bodyData;
                 
-                // 创建账户
-                const createResponse = await fetch('/admin/claude-accounts', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + this.authToken
-                    },
-                    body: JSON.stringify({
+                if (this.accountForm.platform === 'gemini') {
+                    // Gemini 账户
+                    // 如果有 Refresh Token，设置10分钟过期；否则设置1年
+                    const expiresInMs = this.accountForm.refreshToken 
+                        ? (10 * 60 * 1000) // 10分钟
+                        : (365 * 24 * 60 * 60 * 1000); // 1年
+                    
+                    const geminiOauthData = {
+                        access_token: this.accountForm.accessToken,
+                        refresh_token: this.accountForm.refreshToken || '',
+                        scope: 'https://www.googleapis.com/auth/cloud-platform',
+                        token_type: 'Bearer',
+                        expiry_date: Date.now() + expiresInMs
+                    };
+                    
+                    endpoint = '/admin/gemini-accounts';
+                    bodyData = {
+                        name: this.accountForm.name,
+                        description: this.accountForm.description,
+                        geminiOauth: geminiOauthData,
+                        proxy: proxy,
+                        accountType: this.accountForm.accountType,
+                        projectId: this.accountForm.projectId || '' // 添加项目编号
+                    };
+                } else {
+                    // Claude 账户
+                    // 如果有 Refresh Token，设置10分钟过期；否则设置1年
+                    const expiresInMs = this.accountForm.refreshToken 
+                        ? (10 * 60 * 1000) // 10分钟
+                        : (365 * 24 * 60 * 60 * 1000); // 1年
+                    
+                    const manualOauthData = {
+                        accessToken: this.accountForm.accessToken,
+                        refreshToken: this.accountForm.refreshToken || '',
+                        expiresAt: Date.now() + expiresInMs,
+                        scopes: ['user:inference'] // 默认权限
+                    };
+                    
+                    endpoint = '/admin/claude-accounts';
+                    bodyData = {
                         name: this.accountForm.name,
                         description: this.accountForm.description,
                         claudeAiOauth: manualOauthData,
                         proxy: proxy,
                         accountType: this.accountForm.accountType
-                    })
+                    };
+                }
+                
+                // 创建账户
+                const createResponse = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + this.authToken
+                    },
+                    body: JSON.stringify(bodyData)
                 });
                 
                 const createData = await createResponse.json();
@@ -790,6 +1086,170 @@ const app = createApp({
             }
         },
         
+        // Gemini OAuth 轮询
+        async startGeminiOAuthPolling() {
+            if (this.geminiOauthPolling) return;
+            
+            this.geminiOauthPolling = true;
+            let attempts = 0;
+            const maxAttempts = 30; // 最多轮询 30 次（60秒）
+            
+            this.geminiOauthInterval = setInterval(async () => {
+                attempts++;
+                
+                try {
+                    const data = await this.apiRequest('/admin/gemini-accounts/poll-auth-status', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            sessionId: this.geminiOauthData.sessionId
+                        })
+                    });
+                    
+                    if (!data) {
+                        // 如果token过期，apiRequest会返回null并刷新页面
+                        this.stopGeminiOAuthPolling();
+                        return;
+                    }
+                    
+                    if (data.success) {
+                        // 授权成功
+                        this.stopGeminiOAuthPolling();
+                        this.geminiOauthData.code = 'authorized';
+                        
+                        // 自动创建账户
+                        await this.createGeminiOAuthAccount(data.data.tokens);
+                    } else if (data.error === 'Authorization timeout' || attempts >= maxAttempts) {
+                        // 超时
+                        this.stopGeminiOAuthPolling();
+                        this.showToast('授权超时，请重试', 'error', '授权超时');
+                    }
+                } catch (error) {
+                    console.error('Polling error:', error);
+                    if (attempts >= maxAttempts) {
+                        this.stopGeminiOAuthPolling();
+                        this.showToast('轮询失败，请检查网络连接', 'error', '网络错误');
+                    }
+                }
+            }, 2000); // 每2秒轮询一次
+        },
+        
+        stopGeminiOAuthPolling() {
+            if (this.geminiOauthInterval) {
+                clearInterval(this.geminiOauthInterval);
+                this.geminiOauthInterval = null;
+            }
+            this.geminiOauthPolling = false;
+        },
+        
+        // 创建 Gemini OAuth 账户
+        async createGeminiOAuthAccount() {
+            this.createAccountLoading = true;
+            try {
+                // 首先交换授权码获取 tokens
+                const tokenData = await this.apiRequest('/admin/gemini-accounts/exchange-code', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        code: this.geminiOauthData.code,
+                        sessionId: this.geminiOauthData.sessionId
+                    })
+                });
+                
+                if (!tokenData) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
+                
+                if (!tokenData.success) {
+                    this.showToast(tokenData.message || '授权码交换失败', 'error', '交换失败');
+                    return;
+                }
+                
+                // 构建代理配置
+                let proxy = null;
+                if (this.accountForm.proxyType) {
+                    proxy = {
+                        type: this.accountForm.proxyType,
+                        host: this.accountForm.proxyHost,
+                        port: parseInt(this.accountForm.proxyPort),
+                        username: this.accountForm.proxyUsername || null,
+                        password: this.accountForm.proxyPassword || null
+                    };
+                }
+                
+                // 创建账户
+                const data = await this.apiRequest('/admin/gemini-accounts', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        name: this.accountForm.name,
+                        description: this.accountForm.description,
+                        geminiOauth: tokenData.data.tokens,
+                        proxy: proxy,
+                        accountType: this.accountForm.accountType,
+                        projectId: this.accountForm.projectId || '' // 添加项目编号
+                    })
+                });
+                
+                if (!data) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
+                
+                if (data.success) {
+                    this.showToast('Gemini OAuth账户创建成功！', 'success', '账户创建成功');
+                    this.closeCreateAccountModal();
+                    await this.loadAccounts();
+                } else {
+                    this.showToast(data.message || 'Account creation failed', 'error', 'Creation Failed');
+                }
+            } catch (error) {
+                console.error('Error creating Gemini OAuth account:', error);
+                this.showToast('创建失败，请检查网络连接', 'error', '网络错误', 8000);
+            } finally {
+                this.createAccountLoading = false;
+            }
+        },
+        
+        // 处理 Gemini OAuth 授权码输入
+        handleGeminiAuthCodeInput(value, isUserTyping = false) {
+            if (!value || typeof value !== 'string') return;
+            
+            const trimmedValue = value.trim();
+            
+            // 如果内容为空，不处理
+            if (!trimmedValue) return;
+            
+            // 检查是否是 URL 格式（包含 http:// 或 https://）
+            const isUrl = trimmedValue.startsWith('http://') || trimmedValue.startsWith('https://');
+            
+            // 如果是 URL 格式
+            if (isUrl) {
+                // 检查是否是正确的 localhost:45462 开头的 URL
+                if (trimmedValue.startsWith('http://localhost:45462')) {
+                    try {
+                        const url = new URL(trimmedValue);
+                        const code = url.searchParams.get('code');
+                        
+                        if (code) {
+                            // 成功提取授权码
+                            this.geminiOauthData.code = code;
+                            this.showToast('成功提取授权码！', 'success', '提取成功');
+                            console.log('Successfully extracted authorization code from URL');
+                        } else {
+                            // URL 中没有 code 参数
+                            this.showToast('URL 中未找到授权码参数，请检查链接是否正确', 'error', '提取失败');
+                        }
+                    } catch (error) {
+                        // URL 解析失败
+                        console.error('Failed to parse URL:', error);
+                        this.showToast('链接格式错误，请检查是否为完整的 URL', 'error', '解析失败');
+                    }
+                } else {
+                    // 错误的 URL（不是 localhost:45462 开头）
+                    this.showToast('请粘贴以 http://localhost:45462 开头的链接', 'error', '链接错误');
+                }
+            }
+            // 如果不是 URL，保持原值（兼容直接输入授权码）
+        },
         
         // 根据当前标签页加载数据
         loadCurrentTabData() {
@@ -926,7 +1386,8 @@ const app = createApp({
                     // 记录当前用户名（使用服务器返回的真实用户名）
                     this.currentUser.username = data.username;
                     
-                    this.loadDashboard();
+                    // 登录成功后刷新页面以重新加载所有数据
+                    location.reload();
                 } else {
                     this.loginError = data.message;
                 }
@@ -941,11 +1402,12 @@ const app = createApp({
         // 加载当前用户信息
         async loadCurrentUser() {
             try {
-                const response = await fetch('/web/auth/user', {
-                    headers: { 'Authorization': 'Bearer ' + this.authToken }
-                });
+                const data = await this.apiRequest('/web/auth/user');
                 
-                const data = await response.json();
+                if (!data) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
                 
                 if (data.success) {
                     this.currentUser.username = data.user.username;
@@ -956,6 +1418,130 @@ const app = createApp({
             } catch (error) {
                 console.error('Error loading current user:', error);
             }
+        },
+        
+        // 版本管理相关方法
+        async loadCurrentVersion() {
+            try {
+                const response = await fetch('/health');
+                const data = await response.json();
+                
+                if (data.version) {
+                    // 从健康检查端点获取当前版本
+                    this.versionInfo.current = data.version;
+                    
+                    // 检查更新
+                    await this.checkForUpdates();
+                    
+                    // 设置自动检查更新（每小时检查一次）
+                    this.versionInfo.autoCheckInterval = setInterval(() => {
+                        this.checkForUpdates();
+                    }, 3600000); // 1小时
+                }
+            } catch (error) {
+                console.error('Error loading current version:', error);
+                this.versionInfo.current = '未知';
+            }
+        },
+        
+        async checkForUpdates() {
+            if (this.versionInfo.checkingUpdate) {
+                return;
+            }
+            
+            this.versionInfo.checkingUpdate = true;
+            
+            try {
+                // 使用后端接口检查更新
+                const result = await this.apiRequest('/admin/check-updates');
+                
+                if (!result) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
+                
+                if (result.success) {
+                    const data = result.data;
+                    
+                    this.versionInfo.current = data.current;
+                    this.versionInfo.latest = data.latest;
+                    this.versionInfo.hasUpdate = data.hasUpdate;
+                    this.versionInfo.releaseInfo = data.releaseInfo;
+                    this.versionInfo.lastChecked = new Date();
+                    
+                    // 保存到localStorage
+                    localStorage.setItem('versionInfo', JSON.stringify({
+                        current: data.current,
+                        latest: data.latest,
+                        lastChecked: this.versionInfo.lastChecked,
+                        hasUpdate: data.hasUpdate,
+                        releaseInfo: data.releaseInfo
+                    }));
+                    
+                    // 如果没有更新，显示提醒
+                    if (!data.hasUpdate) {
+                        this.versionInfo.noUpdateMessage = true;
+                        // 3秒后自动隐藏提醒
+                        setTimeout(() => {
+                            this.versionInfo.noUpdateMessage = false;
+                        }, 3000);
+                    }
+                    
+                    if (data.cached && data.warning) {
+                        console.warn('Version check warning:', data.warning);
+                    }
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+            } catch (error) {
+                console.error('Error checking for updates:', error);
+                
+                // 尝试从localStorage读取缓存的版本信息
+                const cached = localStorage.getItem('versionInfo');
+                if (cached) {
+                    const cachedInfo = JSON.parse(cached);
+                    this.versionInfo.current = cachedInfo.current || this.versionInfo.current;
+                    this.versionInfo.latest = cachedInfo.latest;
+                    this.versionInfo.hasUpdate = cachedInfo.hasUpdate;
+                    this.versionInfo.releaseInfo = cachedInfo.releaseInfo;
+                    this.versionInfo.lastChecked = new Date(cachedInfo.lastChecked);
+                }
+            } finally {
+                this.versionInfo.checkingUpdate = false;
+            }
+        },
+        
+        compareVersions(current, latest) {
+            // 比较语义化版本号
+            const parseVersion = (v) => {
+                const parts = v.split('.').map(Number);
+                return {
+                    major: parts[0] || 0,
+                    minor: parts[1] || 0,
+                    patch: parts[2] || 0
+                };
+            };
+            
+            const currentV = parseVersion(current);
+            const latestV = parseVersion(latest);
+            
+            if (currentV.major !== latestV.major) {
+                return currentV.major - latestV.major;
+            }
+            if (currentV.minor !== latestV.minor) {
+                return currentV.minor - latestV.minor;
+            }
+            return currentV.patch - latestV.patch;
+        },
+        
+        formatVersionDate(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            return date.toLocaleDateString('zh-CN', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
         },
         
         // 用户菜单相关方法
@@ -988,12 +1574,8 @@ const app = createApp({
             
             this.changePasswordLoading = true;
             try {
-                const response = await fetch('/web/auth/change-password', {
+                const result = await this.apiRequest('/web/auth/change-password', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + this.authToken
-                    },
                     body: JSON.stringify({
                         newUsername: this.changePasswordForm.newUsername || undefined,
                         currentPassword: this.changePasswordForm.currentPassword,
@@ -1001,7 +1583,10 @@ const app = createApp({
                     })
                 });
                 
-                const result = await response.json();
+                if (!result) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
                 
                 if (result.success) {
                     this.showToast('账户信息修改成功，即将退出登录', 'success');
@@ -1050,24 +1635,16 @@ const app = createApp({
         
         async loadDashboard() {
             try {
-                const [dashboardResponse, costsResponse] = await Promise.all([
-                    fetch('/admin/dashboard', {
-                        headers: { 'Authorization': 'Bearer ' + this.authToken }
-                    }),
-                    Promise.all([
-                        fetch('/admin/usage-costs?period=today', {
-                            headers: { 'Authorization': 'Bearer ' + this.authToken }
-                        }),
-                        fetch('/admin/usage-costs?period=all', {
-                            headers: { 'Authorization': 'Bearer ' + this.authToken }
-                        })
-                    ])
+                const [dashboardData, todayCostsData, totalCostsData] = await Promise.all([
+                    this.apiRequest('/admin/dashboard'),
+                    this.apiRequest('/admin/usage-costs?period=today'),
+                    this.apiRequest('/admin/usage-costs?period=all')
                 ]);
                 
-                const dashboardData = await dashboardResponse.json();
-                const [todayCostsResponse, totalCostsResponse] = costsResponse;
-                const todayCostsData = await todayCostsResponse.json();
-                const totalCostsData = await totalCostsResponse.json();
+                if (!dashboardData || !todayCostsData || !totalCostsData) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
                 
                 if (dashboardData.success) {
                     const overview = dashboardData.data.overview || {};
@@ -1116,10 +1693,12 @@ const app = createApp({
             this.apiKeysLoading = true;
             console.log('Loading API Keys...');
             try {
-                const response = await fetch('/admin/api-keys', {
-                    headers: { 'Authorization': 'Bearer ' + this.authToken }
-                });
-                const data = await response.json();
+                const data = await this.apiRequest('/admin/api-keys');
+                
+                if (!data) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
                 
                 console.log('API Keys response:', data);
                 
@@ -1160,18 +1739,46 @@ const app = createApp({
         async loadAccounts() {
             this.accountsLoading = true;
             try {
-                const response = await fetch('/admin/claude-accounts', {
-                    headers: { 'Authorization': 'Bearer ' + this.authToken }
-                });
-                const data = await response.json();
+                // 并行加载 Claude 和 Gemini 账户
+                const [claudeData, geminiData] = await Promise.all([
+                    this.apiRequest('/admin/claude-accounts'),
+                    this.apiRequest('/admin/gemini-accounts')
+                ]);
                 
-                if (data.success) {
-                    this.accounts = data.data || [];
-                    // 为每个账号计算绑定的API Key数量
-                    this.accounts.forEach(account => {
-                        account.boundApiKeysCount = this.apiKeys.filter(key => key.claudeAccountId === account.id).length;
-                    });
+                if (!claudeData || !geminiData) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
                 }
+                
+                // 合并账户数据
+                const allAccounts = [];
+                
+                if (claudeData.success) {
+                    const claudeAccounts = (claudeData.data || []).map(acc => ({
+                        ...acc,
+                        platform: 'claude'
+                    }));
+                    allAccounts.push(...claudeAccounts);
+                }
+                
+                if (geminiData.success) {
+                    const geminiAccounts = (geminiData.data || []).map(acc => ({
+                        ...acc,
+                        platform: 'gemini'
+                    }));
+                    allAccounts.push(...geminiAccounts);
+                }
+                
+                this.accounts = allAccounts;
+                
+                // 为每个账号计算绑定的API Key数量
+                this.accounts.forEach(account => {
+                    if (account.platform === 'claude') {
+                        account.boundApiKeysCount = this.apiKeys.filter(key => key.claudeAccountId === account.id).length;
+                    } else {
+                        account.boundApiKeysCount = this.apiKeys.filter(key => key.geminiAccountId === account.id).length;
+                    }
+                });
             } catch (error) {
                 console.error('Failed to load accounts:', error);
             } finally {
@@ -1183,10 +1790,12 @@ const app = createApp({
         async loadModelStats() {
             this.modelStatsLoading = true;
             try {
-                const response = await fetch('/admin/model-stats?period=' + this.modelStatsPeriod, {
-                    headers: { 'Authorization': 'Bearer ' + this.authToken }
-                });
-                const data = await response.json();
+                const data = await this.apiRequest('/admin/model-stats?period=' + this.modelStatsPeriod);
+                
+                if (!data) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
                 
                 if (data.success) {
                     this.modelStats = data.data || [];
@@ -1204,12 +1813,8 @@ const app = createApp({
         async createApiKey() {
             this.createApiKeyLoading = true;
             try {
-                const response = await fetch('/admin/api-keys', {
+                const data = await this.apiRequest('/admin/api-keys', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + this.authToken
-                    },
                     body: JSON.stringify({
                         name: this.apiKeyForm.name,
                         tokenLimit: this.apiKeyForm.tokenLimit && this.apiKeyForm.tokenLimit.trim() ? parseInt(this.apiKeyForm.tokenLimit) : null,
@@ -1218,12 +1823,17 @@ const app = createApp({
                         rateLimitWindow: this.apiKeyForm.rateLimitWindow && this.apiKeyForm.rateLimitWindow.trim() ? parseInt(this.apiKeyForm.rateLimitWindow) : null,
                         rateLimitRequests: this.apiKeyForm.rateLimitRequests && this.apiKeyForm.rateLimitRequests.trim() ? parseInt(this.apiKeyForm.rateLimitRequests) : null,
                         claudeAccountId: this.apiKeyForm.claudeAccountId || null,
+                        geminiAccountId: this.apiKeyForm.geminiAccountId || null,
+                        permissions: this.apiKeyForm.permissions || 'all',
                         enableModelRestriction: this.apiKeyForm.enableModelRestriction,
                         restrictedModels: this.apiKeyForm.restrictedModels
                     })
                 });
                 
-                const data = await response.json();
+                if (!data) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
                 
                 if (data.success) {
                     // 设置新API Key数据并显示弹窗
@@ -1253,15 +1863,23 @@ const app = createApp({
         },
         
         async deleteApiKey(keyId) {
-            if (!confirm('确定要删除这个 API Key 吗？')) return;
+            const confirmed = await this.showConfirm(
+                '删除 API Key',
+                '确定要删除这个 API Key 吗？\n\n此操作不可撤销，删除后将无法恢复。',
+                '确认删除',
+                '取消'
+            );
+            if (!confirmed) return;
             
             try {
-                const response = await fetch('/admin/api-keys/' + keyId, {
-                    method: 'DELETE',
-                    headers: { 'Authorization': 'Bearer ' + this.authToken }
+                const data = await this.apiRequest('/admin/api-keys/' + keyId, {
+                    method: 'DELETE'
                 });
                 
-                const data = await response.json();
+                if (!data) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
                 
                 if (data.success) {
                     this.showToast('API Key 删除成功', 'success', '删除成功');
@@ -1284,6 +1902,8 @@ const app = createApp({
                 rateLimitWindow: key.rateLimitWindow || '',
                 rateLimitRequests: key.rateLimitRequests || '',
                 claudeAccountId: key.claudeAccountId || '',
+                geminiAccountId: key.geminiAccountId || '',
+                permissions: key.permissions || 'all',
                 enableModelRestriction: key.enableModelRestriction || false,
                 restrictedModels: key.restrictedModels ? [...key.restrictedModels] : [],
                 modelInput: ''
@@ -1301,6 +1921,8 @@ const app = createApp({
                 rateLimitWindow: '',
                 rateLimitRequests: '',
                 claudeAccountId: '',
+                geminiAccountId: '',
+                permissions: 'all',
                 enableModelRestriction: false,
                 restrictedModels: [],
                 modelInput: ''
@@ -1310,24 +1932,25 @@ const app = createApp({
         async updateApiKey() {
             this.editApiKeyLoading = true;
             try {
-                const response = await fetch('/admin/api-keys/' + this.editApiKeyForm.id, {
+                const data = await this.apiRequest('/admin/api-keys/' + this.editApiKeyForm.id, {
                     method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + this.authToken
-                    },
                     body: JSON.stringify({
                         tokenLimit: this.editApiKeyForm.tokenLimit && this.editApiKeyForm.tokenLimit.toString().trim() !== '' ? parseInt(this.editApiKeyForm.tokenLimit) : 0,
                         concurrencyLimit: this.editApiKeyForm.concurrencyLimit && this.editApiKeyForm.concurrencyLimit.toString().trim() !== '' ? parseInt(this.editApiKeyForm.concurrencyLimit) : 0,
                         rateLimitWindow: this.editApiKeyForm.rateLimitWindow && this.editApiKeyForm.rateLimitWindow.toString().trim() !== '' ? parseInt(this.editApiKeyForm.rateLimitWindow) : 0,
                         rateLimitRequests: this.editApiKeyForm.rateLimitRequests && this.editApiKeyForm.rateLimitRequests.toString().trim() !== '' ? parseInt(this.editApiKeyForm.rateLimitRequests) : 0,
                         claudeAccountId: this.editApiKeyForm.claudeAccountId || null,
+                        geminiAccountId: this.editApiKeyForm.geminiAccountId || null,
+                        permissions: this.editApiKeyForm.permissions || 'all',
                         enableModelRestriction: this.editApiKeyForm.enableModelRestriction,
                         restrictedModels: this.editApiKeyForm.restrictedModels
                     })
                 });
                 
-                const data = await response.json();
+                if (!data) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
+                    return;
+                }
                 
                 if (data.success) {
                     this.showToast('API Key 更新成功', 'success', '更新成功');
@@ -1378,6 +2001,13 @@ const app = createApp({
                 await this.loadApiKeys();
             }
             
+            // 查找账户以确定平台类型
+            const account = this.accounts.find(acc => acc.id === accountId);
+            if (!account) {
+                this.showToast('账户不存在', 'error', '删除失败');
+                return;
+            }
+            
             // 检查是否有API Key绑定到此账号
             const boundKeysCount = this.getBoundApiKeysCount(accountId);
             if (boundKeysCount > 0) {
@@ -1385,10 +2015,22 @@ const app = createApp({
                 return;
             }
             
-            if (!confirm('确定要删除这个 Claude 账户吗？')) return;
+            const platformName = account.platform === 'gemini' ? 'Gemini' : 'Claude';
+            const confirmed = await this.showConfirm(
+                `删除 ${platformName} 账户`,
+                `确定要删除这个 ${platformName} 账户吗？\n\n账户名称：${account.name}\n此操作不可撤销，删除后将无法恢复。`,
+                '确认删除',
+                '取消'
+            );
+            if (!confirmed) return;
+            
+            // 根据平台选择端点
+            const endpoint = account.platform === 'gemini' 
+                ? `/admin/gemini-accounts/${accountId}`
+                : `/admin/claude-accounts/${accountId}`;
             
             try {
-                const response = await fetch('/admin/claude-accounts/' + accountId, {
+                const response = await fetch(endpoint, {
                     method: 'DELETE',
                     headers: { 'Authorization': 'Bearer ' + this.authToken }
                 });
@@ -1404,6 +2046,40 @@ const app = createApp({
             } catch (error) {
                 console.error('Error deleting account:', error);
                 this.showToast('删除失败，请检查网络连接', 'error', '网络错误');
+            }
+        },
+        
+        // 刷新账户 Token
+        async refreshAccountToken(accountId) {
+            const account = this.accounts.find(acc => acc.id === accountId);
+            if (!account) {
+                this.showToast('账户不存在', 'error', '刷新失败');
+                return;
+            }
+            
+            // 根据平台选择端点
+            const endpoint = account.platform === 'gemini' 
+                ? `/admin/gemini-accounts/${accountId}/refresh`
+                : `/admin/claude-accounts/${accountId}/refresh`;
+            
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + this.authToken }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const platformName = account.platform === 'gemini' ? 'Gemini' : 'Claude';
+                    this.showToast(`${platformName} Token 刷新成功`, 'success', '刷新成功');
+                    await this.loadAccounts();
+                } else {
+                    this.showToast(data.message || '刷新失败', 'error', '刷新失败');
+                }
+            } catch (error) {
+                console.error('Error refreshing token:', error);
+                this.showToast('刷新失败，请检查网络连接', 'error', '网络错误');
             }
         },
         
@@ -1444,9 +2120,15 @@ const app = createApp({
             }
         },
         
-        closeNewApiKeyModal() {
+        async closeNewApiKeyModal() {
             // 显示确认提示
-            if (confirm('关闭后将无法再次查看完整的API Key，请确保已经妥善保存。确定要关闭吗？')) {
+            const confirmed = await this.showConfirm(
+                '关闭 API Key',
+                '关闭后将无法再次查看完整的API Key，请确保已经妥善保存。\n\n确定要关闭吗？',
+                '我已保存',
+                '取消'
+            );
+            if (confirmed) {
                 this.showNewApiKeyModal = false;
                 this.newApiKey = { key: '', name: '', description: '', showFullKey: false };
             }
@@ -1487,21 +2169,13 @@ const app = createApp({
         async loadDashboardModelStats() {
             console.log('Loading dashboard model stats, period:', this.dashboardModelPeriod, 'authToken:', !!this.authToken);
             try {
-                const response = await fetch('/admin/model-stats?period=' + this.dashboardModelPeriod, {
-                    headers: { 'Authorization': 'Bearer ' + this.authToken }
-                });
+                const data = await this.apiRequest('/admin/model-stats?period=' + this.dashboardModelPeriod);
                 
-                console.log('Model stats response status:', response.status);
-                
-                if (!response.ok) {
-                    console.error('Model stats API error:', response.status, response.statusText);
-                    const errorText = await response.text();
-                    console.error('Error response:', errorText);
-                    this.dashboardModelStats = [];
+                if (!data) {
+                    // 如果token过期，apiRequest会返回null并刷新页面
                     return;
                 }
                 
-                const data = await response.json();
                 console.log('Model stats response data:', data);
                 
                 if (data.success) {
@@ -2019,7 +2693,10 @@ const app = createApp({
             // 只显示前10个使用量最多的API Key
             this.apiKeysTrendData.topApiKeys.forEach((apiKeyId, index) => {
                 const data = this.apiKeysTrendData.data.map(item => {
-                    return item.apiKeys[apiKeyId] ? item.apiKeys[apiKeyId].tokens : 0;
+                    if (!item.apiKeys[apiKeyId]) return 0;
+                    return this.apiKeysTrendMetric === 'tokens' 
+                        ? item.apiKeys[apiKeyId].tokens 
+                        : item.apiKeys[apiKeyId].requests || 0;
                 });
                 
                 // 获取API Key名称
@@ -2077,7 +2754,7 @@ const app = createApp({
                                 position: 'left',
                                 title: {
                                     display: true,
-                                    text: 'Token 数量'
+                                    text: this.apiKeysTrendMetric === 'tokens' ? 'Token 数量' : '请求次数'
                                 },
                                 ticks: {
                                     callback: function(value) {
@@ -2115,10 +2792,11 @@ const app = createApp({
                                         }
                                         return tooltipItems[0].label;
                                     },
-                                    label: function(context) {
+                                    label: (context) => {
                                         const label = context.dataset.label || '';
                                         const value = context.parsed.y;
-                                        return label + ': ' + value.toLocaleString() + ' tokens';
+                                        const unit = this.apiKeysTrendMetric === 'tokens' ? ' tokens' : ' 次';
+                                        return label + ': ' + value.toLocaleString() + unit;
                                     }
                                 }
                             }
