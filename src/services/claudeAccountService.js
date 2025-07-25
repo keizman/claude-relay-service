@@ -235,7 +235,8 @@ class ClaudeAccountService {
         throw new Error('Account not found');
       }
 
-      if (accountData.isActive !== 'true') {
+      // 兼容旧数据：undefined默认为启用状态
+      if (accountData.isActive === 'false') {
         throw new Error('Account is disabled');
       }
 
@@ -286,6 +287,7 @@ class ClaudeAccountService {
     try {
       const accounts = await redis.getAllClaudeAccounts();
       
+
       // 处理返回数据，移除敏感信息并添加限流状态
       const processedAccounts = await Promise.all(accounts.map(async account => {
         // 获取限流状态信息
@@ -394,6 +396,46 @@ class ClaudeAccountService {
     }
   }
 
+  // 🔄 切换Claude账户状态（启用/禁用）
+  async toggleAccountStatus(accountId) {
+    try {
+      const accountData = await redis.getClaudeAccount(accountId);
+      
+      if (!accountData || Object.keys(accountData).length === 0) {
+        throw new Error('Account not found');
+      }
+
+      // 切换isActive状态，兼容旧数据（undefined默认为true）
+      const currentActive = accountData.isActive === undefined ? true : accountData.isActive === 'true';
+      const newStatus = currentActive ? 'false' : 'true';
+      const actionText = newStatus === 'true' ? '启用' : '禁用';
+      
+      accountData.isActive = newStatus;
+      accountData.updatedAt = new Date().toISOString();
+      
+      // 如果是禁用操作，记录禁用时间
+      if (newStatus === 'false') {
+        accountData.disabledAt = new Date().toISOString();
+      } else {
+        // 如果是启用操作，清除禁用时间
+        delete accountData.disabledAt;
+      }
+      
+      await redis.setClaudeAccount(accountId, accountData);
+      
+      logger.success(`🔄 ${actionText}了 Claude 账户: ${accountData.name} (${accountId})`);
+      
+      return { 
+        success: true, 
+        isActive: newStatus === 'true',
+        message: `账户已${actionText}` 
+      };
+    } catch (error) {
+      logger.error('❌ Failed to toggle Claude account status:', error);
+      throw error;
+    }
+  }
+
   // 🗑️ 删除Claude账户
   async deleteAccount(accountId) {
     try {
@@ -418,7 +460,7 @@ class ClaudeAccountService {
       const accounts = await redis.getAllClaudeAccounts();
       
       const activeAccounts = accounts.filter(account => 
-        account.isActive === 'true' && 
+        (account.isActive === undefined || account.isActive === 'true') && // 兼容旧数据，undefined默认为true
         account.status !== 'error'
       );
 
@@ -472,7 +514,7 @@ class ClaudeAccountService {
       // 如果API Key绑定了专属账户，优先使用
       if (apiKeyData.claudeAccountId) {
         const boundAccount = await redis.getClaudeAccount(apiKeyData.claudeAccountId);
-        if (boundAccount && boundAccount.isActive === 'true' && boundAccount.status !== 'error') {
+        if (boundAccount && (boundAccount.isActive === undefined || boundAccount.isActive === 'true') && boundAccount.status !== 'error') {
           logger.info(`🎯 Using bound dedicated account: ${boundAccount.name} (${apiKeyData.claudeAccountId}) for API key ${apiKeyData.name}`);
           return apiKeyData.claudeAccountId;
         } else {
@@ -484,7 +526,7 @@ class ClaudeAccountService {
       const accounts = await redis.getAllClaudeAccounts();
       
       const sharedAccounts = accounts.filter(account => 
-        account.isActive === 'true' && 
+        (account.isActive === undefined || account.isActive === 'true') && // 兼容旧数据，undefined默认为true
         account.status !== 'error' &&
         (account.accountType === 'shared' || !account.accountType) // 兼容旧数据
       );
@@ -584,6 +626,10 @@ class ClaudeAccountService {
       if (proxy.type === 'socks5') {
         const auth = proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : '';
         const socksUrl = `socks5://${auth}${proxy.host}:${proxy.port}`;
+        return new SocksProxyAgent(socksUrl);
+      } else if (proxy.type === 'socks5h') {
+        const auth = proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : '';
+        const socksUrl = `socks5h://${auth}${proxy.host}:${proxy.port}`;
         return new SocksProxyAgent(socksUrl);
       } else if (proxy.type === 'http' || proxy.type === 'https') {
         const auth = proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : '';

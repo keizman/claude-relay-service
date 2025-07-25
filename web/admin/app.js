@@ -279,7 +279,7 @@ const app = createApp({
             return `${window.location.protocol}//${window.location.host}/api/`;
         },
         
-        // 获取专属账号列表
+        // 获取专属账号列表（只显示启用的专属账户）
         dedicatedAccounts() {
             return this.accounts.filter(account => 
                 account.accountType === 'dedicated' && account.isActive === true
@@ -1964,6 +1964,34 @@ const app = createApp({
                 this.showToast('更新失败，请检查网络连接', 'error', '网络错误');
             } finally {
                 this.editApiKeyLoading = false;
+            }
+        },
+        
+        async toggleAccountStatus(accountId, currentStatus) {
+            const actionText = currentStatus ? '禁用' : '启用';
+            const confirmText = currentStatus ? 
+                '确定要禁用这个 Claude 账户吗？禁用后该账户将不再被用于API请求。' : 
+                '确定要启用这个 Claude 账户吗？';
+            
+            if (!confirm(confirmText)) return;
+            
+            try {
+                const response = await fetch(`/admin/claude-accounts/${accountId}/toggle-status`, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + this.authToken }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    this.showToast(data.data.message, 'success', `${actionText}成功`);
+                    await this.loadAccounts();
+                } else {
+                    this.showToast(data.message || `${actionText}失败`, 'error', `${actionText}失败`);
+                }
+            } catch (error) {
+                console.error('Error toggling account status:', error);
+                this.showToast(`${actionText}失败，请检查网络连接`, 'error', '网络错误');
             }
         },
         

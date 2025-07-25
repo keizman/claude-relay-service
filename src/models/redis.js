@@ -38,7 +38,25 @@ class RedisClient {
         retryDelayOnFailover: config.redis.retryDelayOnFailover,
         maxRetriesPerRequest: config.redis.maxRetriesPerRequest,
         lazyConnect: config.redis.lazyConnect,
-        tls: config.redis.enableTLS ? {} : false
+        tls: config.redis.enableTLS ? {} : false,
+        // 应用新的优化配置
+        keepAlive: config.redis.keepAlive || 30000,
+        retryStrategy: config.redis.retryStrategy || ((times) => {
+          const delay = Math.min(times * 200, 5000);
+          logger.warn(`🔄 Redis retry attempt ${times}, delay: ${delay}ms`);
+          return delay;
+        }),
+        reconnectOnError: config.redis.reconnectOnError || ((err) => {
+          logger.warn(`🔍 Redis error detected: ${err.message}`);
+          const targetErrors = ['READONLY', 'ECONNRESET', 'ENOTFOUND', 'ENETUNREACH', 'ETIMEDOUT'];
+          const shouldReconnect = targetErrors.some(target => err.message.includes(target));
+          if (shouldReconnect) {
+            logger.info(`🔄 Auto-reconnecting due to error: ${err.message}`);
+          }
+          return shouldReconnect;
+        }),
+        maxLoadingRetryTime: config.redis.maxLoadingRetryTime || 10000,
+        socketTimeout: config.redis.socketTimeout || 60000,
       });
 
       this.client.on('connect', () => {
@@ -54,6 +72,20 @@ class RedisClient {
       this.client.on('close', () => {
         this.isConnected = false;
         logger.warn('⚠️  Redis connection closed');
+      });
+
+      // 新增更多事件监听
+      this.client.on('reconnecting', (delay) => {
+        logger.info(`🔄 Redis reconnecting in ${delay}ms`);
+      });
+
+      this.client.on('end', () => {
+        this.isConnected = false;
+        logger.warn('🔚 Redis connection ended');
+      });
+
+      this.client.on('ready', () => {
+        logger.info('✅ Redis is ready to receive commands');
       });
 
       await this.client.connect();

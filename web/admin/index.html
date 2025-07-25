@@ -909,7 +909,7 @@
                                         <th class="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">状态</th>
                                         <th class="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">代理</th>
                                         <th class="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">最后使用</th>
-                                        <th class="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">操作</th>
+                                        <th class="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider w-56">操作</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200/50">
@@ -958,10 +958,10 @@
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             <div class="flex flex-col gap-1">
                                                 <span :class="['inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold', 
-                                                             account.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800']">
+                                                             account.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800']">
                                                     <div :class="['w-2 h-2 rounded-full mr-2', 
-                                                               account.isActive ? 'bg-green-500' : 'bg-red-500']"></div>
-                                                    {{ account.isActive ? '正常' : '异常' }}
+                                                               account.isActive ? 'bg-green-500' : 'bg-gray-500']"></div>
+                                                    {{ account.isActive ? '正常' : '禁用' }}
                                                 </span>
                                                 <span v-if="account.rateLimitStatus && account.rateLimitStatus.isRateLimited" 
                                                       class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
@@ -989,6 +989,16 @@
                                                 class="text-blue-600 hover:text-blue-900 font-medium hover:bg-blue-50 px-3 py-1 rounded-lg transition-colors"
                                             >
                                                 <i class="fas fa-edit mr-1"></i>编辑
+                                            </button>
+                                            <button 
+                                                @click="toggleAccountStatus(account.id, account.isActive)" 
+                                                :class="account.isActive ? 
+                                                    'text-orange-600 hover:text-orange-900 hover:bg-orange-50' : 
+                                                    'text-green-600 hover:text-green-900 hover:bg-green-50'"
+                                                class="font-medium px-3 py-1 rounded-lg transition-colors"
+                                            >
+                                                <i :class="account.isActive ? 'fas fa-pause' : 'fas fa-play'" class="mr-1"></i>
+                                                {{ account.isActive ? '禁用' : '启用' }}
                                             </button>
                                             <button 
                                                 @click="deleteAccount(account.id)" 
@@ -2727,16 +2737,21 @@
 
                         <div class="border-t pt-6">
                             <label class="block text-sm font-semibold text-gray-700 mb-3">代理设置 (可选)</label>
+
                             <p class="text-sm text-gray-500 mb-4">
                                 <span v-if="accountForm.platform === 'claude'">如果需要使用代理访问Claude服务，请配置代理信息。OAuth授权也将通过此代理进行。</span>
                                 <span v-else-if="accountForm.platform === 'gemini'">如果需要使用代理访问Gemini服务，请配置代理信息。OAuth授权也将通过此代理进行。</span>
                             </p>
+                            <p class="text-sm text-gray-500 mb-4">如果需要使用代理访问Claude服务，请配置代理信息。OAuth授权也将通过此代理进行。</p>
+                            <p class="text-xs text-amber-600 mb-4">💡 <strong>提示：</strong>如果SOCKS5连接失败，请尝试使用SOCKS5H（通过代理解析域名）</p>
+
                             <select 
                                 v-model="accountForm.proxyType" 
                                 class="form-input w-full"
                             >
                                 <option value="">不使用代理</option>
                                 <option value="socks5">SOCKS5 代理</option>
+                                <option value="socks5h">SOCKS5H 代理 (推荐)</option>
                                 <option value="http">HTTP 代理</option>
                             </select>
                         </div>
@@ -3181,12 +3196,14 @@
                     <div class="border-t pt-6">
                         <label class="block text-sm font-semibold text-gray-700 mb-3">代理设置 (可选)</label>
                         <p class="text-sm text-gray-500 mb-4">如果需要修改代理设置，请更新代理信息。</p>
+                        <p class="text-xs text-amber-600 mb-4">💡 <strong>提示：</strong>如果SOCKS5连接失败，请尝试使用SOCKS5H（通过代理解析域名）</p>
                         <select 
                             v-model="editAccountForm.proxyType" 
                             class="form-input w-full"
                         >
                             <option value="">不使用代理</option>
                             <option value="socks5">SOCKS5 代理</option>
+                            <option value="socks5h">SOCKS5H 代理 (推荐)</option>
                             <option value="http">HTTP 代理</option>
                         </select>
                     </div>
