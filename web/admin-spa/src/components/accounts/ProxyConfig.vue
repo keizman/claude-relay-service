@@ -22,10 +22,14 @@
         </div>
         <div class="flex-1">
           <p class="text-sm text-gray-700 dark:text-gray-300">
-            配置代理以访问受限的网络资源。支持 SOCKS5 和 HTTP 代理。
+            配置代理以访问受限的网络资源。支持 SOCKS5/SOCKS5H 和 HTTP 代理。
           </p>
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
             请确保代理服务器稳定可用，否则会影响账户的正常使用。
+          </p>
+          <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">
+            <i class="fas fa-lightbulb mr-1" />
+            <strong>提示：</strong>如果SOCKS5连接失败，请尝试使用SOCKS5H（通过代理解析域名）
           </p>
         </div>
       </div>
@@ -42,7 +46,7 @@
           <input
             v-model="proxyUrl"
             class="form-input w-full border-gray-300 pr-10 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
-            placeholder="例如: socks5://username:password@host:port 或 http://host:port"
+            placeholder="例如: socks5h://username:password@host:port 或 http://host:port"
             type="text"
             @input="handleInput"
             @keyup.enter="parseProxyUrl"
@@ -78,6 +82,7 @@
           class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
         >
           <option value="socks5">SOCKS5</option>
+          <option value="socks5h">SOCKS5H (推荐)</option>
           <option value="http">HTTP</option>
           <option value="https">HTTPS</option>
         </select>
@@ -309,7 +314,7 @@ function parseProxyUrl() {
 
     // 正则表达式匹配代理URL格式
     // 支持格式：protocol://[username:password@]host:port
-    const proxyPattern = /^(socks5|https?):\/\/(?:([^:@]+):([^@]+)@)?([^:]+):(\d+)$/i
+    const proxyPattern = /^(socks5h?|https?):\/\/(?:([^:@]+):([^@]+)@)?([^:]+):(\d+)$/i
     const match = urlWithoutAlias.match(proxyPattern)
 
     if (!match) {
@@ -394,8 +399,8 @@ function handleInput() {
   if (value.includes('://')) {
     // 检查是否看起来像完整的URL（有协议、主机和端口）
     if (
-      /^(socks5|https?):\/\/[^:]+:\d+/i.test(value) ||
-      /^(socks5|https?):\/\/[^:@]+:[^@]+@[^:]+:\d+/i.test(value)
+      /^(socks5h?|https?):\/\/[^:]+:\d+/i.test(value) ||
+      /^(socks5h?|https?):\/\/[^:@]+:[^@]+@[^:]+:\d+/i.test(value)
     ) {
       parseProxyUrl()
     }

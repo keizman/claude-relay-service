@@ -5,7 +5,7 @@ const config = require('../../config/config')
 
 /**
  * 统一的代理创建工具
- * 支持 SOCKS5 和 HTTP/HTTPS 代理，可配置 IPv4/IPv6
+ * 支持 SOCKS5/SOCKS5H 和 HTTP/HTTPS 代理，可配置 IPv4/IPv6
  */
 class ProxyHelper {
   /**
@@ -38,6 +38,17 @@ class ProxyHelper {
 
       // 根据代理类型创建 Agent
       if (proxy.type === 'socks5') {
+        const socksUrl = `socks5://${auth}${proxy.host}:${proxy.port}`
+        const socksOptions = {}
+
+        // 设置 IP 协议族（如果指定）
+        if (useIPv4 !== null) {
+          socksOptions.family = useIPv4 ? 4 : 6
+        }
+
+        return new SocksProxyAgent(socksUrl, socksOptions)
+      } else if (proxy.type === 'socks5h') {
+        // socks5h: hostname lookup through proxy (DNS resolution via proxy)
         const socksUrl = `socks5h://${auth}${proxy.host}:${proxy.port}`
         const socksOptions = {}
 
@@ -128,7 +139,7 @@ class ProxyHelper {
       }
 
       // 检查支持的类型
-      if (!['socks5', 'http', 'https'].includes(proxy.type)) {
+      if (!['socks5', 'socks5h', 'http', 'https'].includes(proxy.type)) {
         return false
       }
 

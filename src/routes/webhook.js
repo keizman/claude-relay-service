@@ -224,7 +224,7 @@ router.post('/test', authenticateAdmin, async (req, res) => {
       if (proxyUrl) {
         try {
           const parsed = new URL(proxyUrl)
-          const supportedProtocols = ['http:', 'https:', 'socks4:', 'socks4a:', 'socks5:']
+          const supportedProtocols = ['http:', 'https:', 'socks4:', 'socks4a:', 'socks5:', 'socks5h:']
           if (!supportedProtocols.includes(parsed.protocol)) {
             return res.status(400).json({
               error: 'Unsupported proxy protocol',

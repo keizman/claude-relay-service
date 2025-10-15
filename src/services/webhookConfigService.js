@@ -166,7 +166,7 @@ class WebhookConfigService {
             throw new Error('Telegram 代理地址格式无效')
           }
           const proxyProtocol = new URL(platform.proxyUrl).protocol
-          const supportedProtocols = ['http:', 'https:', 'socks4:', 'socks4a:', 'socks5:']
+          const supportedProtocols = ['http:', 'https:', 'socks4:', 'socks4a:', 'socks5:', 'socks5h:']
           if (!supportedProtocols.includes(proxyProtocol)) {
             throw new Error('Telegram 代理仅支持 http/https/socks 协议')
           }

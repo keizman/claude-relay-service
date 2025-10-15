@@ -844,11 +844,11 @@
               <input
                 v-model="platformForm.proxyUrl"
                 class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 font-mono text-sm text-gray-900 shadow-sm transition-all placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder:text-gray-500"
-                placeholder="例如：socks5://user:pass@127.0.0.1:1080"
+                placeholder="例如：socks5h://user:pass@127.0.0.1:1080"
                 type="text"
               />
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                支持 http、https、socks4/4a/5 代理，留空则直接连接 Telegram 官方 API
+                支持 http、https、socks4/4a/5/5h 代理，留空则直接连接 Telegram 官方 API
               </p>
             </div>
 
@@ -1584,7 +1584,7 @@ const validatePlatformForm = () => {
     if (platformForm.value.proxyUrl) {
       try {
         const parsed = new URL(platformForm.value.proxyUrl)
-        const supportedProtocols = ['http:', 'https:', 'socks4:', 'socks4a:', 'socks5:']
+        const supportedProtocols = ['http:', 'https:', 'socks4:', 'socks4a:', 'socks5:', 'socks5h:']
         if (!supportedProtocols.includes(parsed.protocol)) {
           showToast('Telegram 代理仅支持 http/https/socks 协议', 'error')
           return false
