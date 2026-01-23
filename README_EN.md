@@ -1,10 +1,5 @@
 # Claude Relay Service
 
-> [!CAUTION]
-> **Security Update**: v1.1.248 and below contain a critical admin authentication bypass vulnerability allowing unauthorized access to the admin panel.
->
-> **Please update to v1.1.249+ immediately**, or migrate to the next-generation project **[CRS 2.0 (sub2api)](https://github.com/Wei-Shaw/sub2api)**
-
 <div align="center">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -14,16 +9,9 @@
 
 **🔐 Self-hosted Claude API relay service with multi-account management** 
 
-[中文文档](README.md) • [Preview](https://demo.pincc.ai/admin-next/login) • [Telegram Channel](https://t.me/claude_relay_service)
+[English](#english) • [中文文档](#中文文档) • [📸 Interface Preview](docs/preview.md)
 
 </div>
-
----
-
-## ⭐ If You Find It Useful, Please Give It a Star!
-
-> Open source is not easy, your Star is my motivation to continue updating 🚀  
-> Join [Telegram Channel](https://t.me/claude_relay_service) for the latest updates
 
 ---
 
@@ -34,6 +22,17 @@
 🚨 **Terms of Service Risk**: Using this project may violate Anthropic's terms of service. Please carefully read Anthropic's user agreement before use. All risks from using this project are borne by the user.
 
 📖 **Disclaimer**: This project is for technical learning and research purposes only. The author is not responsible for any account bans, service interruptions, or other losses caused by using this project.
+
+---
+
+> 💡 **Thanks to [@vista8](https://x.com/vista8) for the recommendation!**
+> 
+> If you're interested in Vibe coding, follow:
+> 
+> - 🐦 **X**: [@vista8](https://x.com/vista8) - Sharing cutting-edge tech trends
+> - 📱 **WeChat**: 向阳乔木推荐看  
+
+---
 
 ## 🤔 Is This Project Right for You?
 
@@ -237,66 +236,19 @@ Assign a key to each user:
 4. Set usage limits (optional)
 5. Save, note down the generated key
 
-### 4. Start Using Claude Code and Gemini CLI
+### 4. Start Using Claude Code
 
 Now you can replace the official API with your own service:
 
-**Claude Code Set Environment Variables:**
-
-Default uses standard Claude account pool:
-
+**Set environment variables:**
 ```bash
-export ANTHROPIC_BASE_URL="http://127.0.0.1:3000/api/" # Fill in your server's IP address or domain
+export ANTHROPIC_BASE_URL="http://127.0.0.1:3000/api/" # Fill in your server's IP address or domain according to actual situation
 export ANTHROPIC_AUTH_TOKEN="API key created in the backend"
 ```
 
-**VSCode Claude Plugin Configuration:**
-
-If using VSCode Claude plugin, configure in `~/.claude/config.json`:
-
-```json
-{
-    "primaryApiKey": "crs"
-}
-```
-
-If the file doesn't exist, create it manually. Windows users path is `C:\Users\YourUsername\.claude\config.json`.
-
-**Gemini CLI Set Environment Variables:**
-
-**Method 1 (Recommended): Via Gemini Assist API**
-
-Each account enjoys 1000 requests per day, 60 requests per minute free quota.
-
-```bash
-CODE_ASSIST_ENDPOINT="http://127.0.0.1:3000/gemini"  # Fill in your server's IP address or domain
-GOOGLE_CLOUD_ACCESS_TOKEN="API key created in the backend"
-GOOGLE_GENAI_USE_GCA="true"
-GEMINI_MODEL="gemini-2.5-pro"
-```
-
-> **Note**: gemini-cli console will show `Failed to fetch user info: 401 Unauthorized`, but this doesn't affect usage.
-
-**Method 2: Via Gemini API**
-
-Very limited free quota, easily triggers 429 errors.
-
-```bash
-GOOGLE_GEMINI_BASE_URL="http://127.0.0.1:3000/gemini"  # Fill in your server's IP address or domain
-GEMINI_API_KEY="API key created in the backend"
-GEMINI_MODEL="gemini-2.5-pro"
-```
-
-**Use Claude Code:**
-
+**Use claude:**
 ```bash
 claude
-```
-
-**Use Gemini CLI:**
-
-```bash
-gemini
 ```
 
 ---
@@ -325,36 +277,6 @@ npm run service:stop
 - **Health Check**: `http://your-domain:3000/health` - Confirm service is normal
 - **Log Files**: Various log files in `logs/` directory
 
-### Upgrade Guide
-
-When a new version is released, follow these steps to upgrade the service:
-
-```bash
-# 1. Navigate to project directory
-cd claude-relay-service
-
-# 2. Pull latest code
-git pull origin main
-
-# If you encounter package-lock.json conflicts, use the remote version
-git checkout --theirs package-lock.json
-git add package-lock.json
-
-# 3. Install new dependencies (if any)
-npm install
-
-# 4. Restart service
-npm run service:restart:daemon
-
-# 5. Check service status
-npm run service:status
-```
-
-**Important Notes:**
-- Before upgrading, it's recommended to backup important configuration files (.env, config/config.js)
-- Check the changelog to understand if there are any breaking changes
-- Database structure changes will be migrated automatically if needed
-
 ### Common Issue Resolution
 
 **Can't connect to Redis?**
@@ -379,192 +301,103 @@ redis-cli ping
 
 ## 🛠️ Advanced Usage
 
-### Reverse Proxy Deployment Guide
+### Production Deployment Recommendations (Important!)
 
-For production environments, it is recommended to use a reverse proxy for automatic HTTPS, security headers, and performance optimization. Two common solutions are provided below: **Caddy** and **Nginx Proxy Manager (NPM)**.
+**Strongly recommend using nginx reverse proxy + SSL certificate**
 
----
+It's recommended to use nginx reverse proxy and configure SSL certificate: (The following is an nginx example, if you don't want to fiddle with it, you can choose to install a panel for operation, such as Baota, 1panel, etc.)
 
-## Caddy Solution
-
-Caddy is a web server that automatically manages HTTPS certificates, with simple configuration and excellent performance, ideal for deployments without Docker environments.
-
-**1. Install Caddy**
-
+**1. Install nginx and obtain SSL certificate**
 ```bash
 # Ubuntu/Debian
-sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo apt update
-sudo apt install caddy
+sudo apt install nginx
 
-# CentOS/RHEL/Fedora
-sudo yum install yum-plugin-copr
-sudo yum copr enable @caddy/caddy
-sudo yum install caddy
+# Install acme.sh
+curl https://get.acme.sh | sh
+source ~/.bashrc
+
+# Get free SSL certificate (using Let's Encrypt as example)
+acme.sh --issue -d your-domain.com --nginx
+# Or use standalone mode
+# acme.sh --issue -d your-domain.com --standalone
 ```
 
-**2. Caddy Configuration**
+**2. nginx configuration example**
 
-Edit `/etc/caddy/Caddyfile`:
+Create `/etc/nginx/sites-available/claude-relay` configuration file:
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+    return 301 https://$server_name$request_uri;
+}
 
-```caddy
-your-domain.com {
-    # Reverse proxy to local service
-    reverse_proxy 127.0.0.1:3000 {
-        # Support streaming responses or SSE
-        flush_interval -1
-
-        # Pass real IP
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-
-        # Long read/write timeout configuration
-        transport http {
-            read_timeout 300s
-            write_timeout 300s
-            dial_timeout 30s
-        }
-    }
-
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+    
+    # SSL configuration
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    
     # Security headers
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        X-Frame-Options "DENY"
-        X-Content-Type-Options "nosniff"
-        -Server
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    
+    # Reverse proxy configuration
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        
+        # Timeout settings
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
     }
 }
 ```
 
-**3. Start Caddy**
-
+**3. Enable configuration**
 ```bash
-sudo caddy validate --config /etc/caddy/Caddyfile
-sudo systemctl start caddy
-sudo systemctl enable caddy
-sudo systemctl status caddy
+# Enable site
+sudo ln -s /etc/nginx/sites-available/claude-relay /etc/nginx/sites-enabled/
+
+# Test configuration
+sudo nginx -t
+
+# Restart nginx
+sudo systemctl restart nginx
 ```
 
-**4. Service Configuration**
+**4. Update service configuration**
 
-Since Caddy automatically manages HTTPS, you can restrict the service to listen locally only:
-
+Modify your service configuration to listen only locally:
 ```javascript
 // config/config.js
 module.exports = {
   server: {
     port: 3000,
-    host: '127.0.0.1' // Listen locally only
+    host: '127.0.0.1'  // Listen only locally, proxy through nginx
   }
+  // ... other configurations
 }
 ```
 
-**Caddy Features**
-
-* 🔒 Automatic HTTPS with zero-configuration certificate management
-* 🛡️ Secure default configuration with modern TLS suites
-* ⚡ HTTP/2 and streaming support
-* 🔧 Concise configuration files, easy to maintain
-
----
-
-## Nginx Proxy Manager (NPM) Solution
-
-Nginx Proxy Manager manages reverse proxies and HTTPS certificates through a graphical interface, deployed as a Docker container.
-
-**1. Create a New Proxy Host in NPM**
-
-Configure the Details as follows:
-
-| Item                  | Setting                  |
-| --------------------- | ------------------------ |
-| Domain Names          | relay.example.com        |
-| Scheme                | http                     |
-| Forward Hostname / IP | 192.168.0.1 (docker host IP) |
-| Forward Port          | 3000                     |
-| Block Common Exploits | ☑️                       |
-| Websockets Support    | ❌ **Disable**            |
-| Cache Assets          | ❌ **Disable**            |
-| Access List           | Publicly Accessible      |
-
-> Note:
-> - Ensure Claude Relay Service **listens on `0.0.0.0`, container IP, or host IP** to allow NPM internal network connections.
-> - **Websockets Support and Cache Assets must be disabled**, otherwise SSE / streaming responses will fail.
-
-**2. Custom locations**
-
-No content needed, keep it empty.
-
-**3. SSL Settings**
-
-* **SSL Certificate**: Request a new SSL Certificate (Let's Encrypt) or existing certificate
-* ☑️ **Force SSL**
-* ☑️ **HTTP/2 Support**
-* ☑️ **HSTS Enabled**
-* ☑️ **HSTS Subdomains**
-
-**4. Advanced Configuration**
-
-Add the following to Custom Nginx Configuration:
-
-```nginx
-# Pass real user IP
-proxy_set_header X-Real-IP $remote_addr;
-proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-proxy_set_header X-Forwarded-Proto $scheme;
-
-# Support WebSocket / SSE streaming
-proxy_http_version 1.1;
-proxy_set_header Upgrade $http_upgrade;
-proxy_set_header Connection "upgrade";
-proxy_buffering off;
-
-# Long connection / timeout settings (for AI chat streaming)
-proxy_read_timeout 300s;
-proxy_send_timeout 300s;
-proxy_connect_timeout 30s;
-
-# ---- Security Settings ----
-# Strict HTTPS policy (HSTS)
-add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-
-# Block clickjacking and content sniffing
-add_header X-Frame-Options "DENY" always;
-add_header X-Content-Type-Options "nosniff" always;
-
-# Referrer / Permissions restriction policies
-add_header Referrer-Policy "no-referrer-when-downgrade" always;
-add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
-
-# Hide server information (equivalent to Caddy's `-Server`)
-proxy_hide_header Server;
-
-# ---- Performance Tuning ----
-# Disable proxy caching for real-time responses (SSE / Streaming)
-proxy_cache_bypass $http_upgrade;
-proxy_no_cache $http_upgrade;
-proxy_request_buffering off;
-```
-
-**5. Launch and Verify**
-
-* After saving, wait for NPM to automatically request Let's Encrypt certificate (if applicable).
-* Check Proxy Host status in Dashboard to ensure it shows "Online".
-* Visit `https://relay.example.com`, if the green lock icon appears, HTTPS is working properly.
-
-**NPM Features**
-
-* 🔒 Automatic certificate application and renewal
-* 🔧 Graphical interface for easy multi-service management
-* ⚡ Native HTTP/2 / HTTPS support
-* 🚀 Ideal for Docker container deployments
-
----
-
-Both solutions are suitable for production deployment. If you use a Docker environment, **Nginx Proxy Manager is more convenient**; if you want to keep software lightweight and automated, **Caddy is a better choice**.
+**Security advantages:**
+- 🔒 **Data Encryption**: All API requests transmitted through HTTPS encryption
+- 🛡️ **Hide Ports**: Don't directly expose service ports, reduce attack surface
+- 🚀 **Better Performance**: nginx's static file serving and caching capabilities
+- 📊 **Access Logs**: nginx provides detailed access logs and monitoring
 
 ---
 
@@ -575,7 +408,7 @@ Both solutions are suitable for production deployment. If you use a Docker envir
 - **Reasonable Allocation**: Can assign different API keys to different people, analyze usage based on different API keys
 
 ### Security Recommendations
-- **Use HTTPS**: Strongly recommend using Caddy reverse proxy (automatic HTTPS) to ensure secure data transmission
+- **Use HTTPS**: Strongly recommend configuring nginx reverse proxy and SSL certificate to ensure secure data transmission
 - **Regular Backups**: Back up important configurations and data
 - **Monitor Logs**: Regularly check exception logs
 - **Update Keys**: Regularly change JWT and encryption keys
